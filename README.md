@@ -12,7 +12,7 @@ Buscador de referencias de anuncios (Biblioteca de Anuncios de Meta) para armar 
 | Botón "Empezar búsqueda" | Cloudflare Pages Function | `functions/api/start-search.ts` |
 | Base de datos, login, favoritos | Supabase | `supabase/schema.sql` |
 | Búsqueda en la Biblioteca de Meta | Apify, corrido desde GitHub Actions | `scraper/`, `.github/workflows/scrape.yml` |
-| Videos e imágenes guardados | Cloudflare R2 | `scraper/storage.ts` |
+| Videos e imágenes guardados | Cloudflare R2 (o Supabase Storage si no hay R2) | `scraper/storage.ts` |
 | Filtro de ruido y ángulos con IA (opcional) | API de Claude | `scraper/classify.ts` |
 
 ## Puesta en marcha (una sola vez, ~30 min)
@@ -27,7 +27,9 @@ Buscador de referencias de anuncios (Biblioteca de Anuncios de Meta) para armar 
 4. **Authentication → URL Configuration**: en *Site URL* poner la URL de Cloudflare Pages (paso 3).
 5. Anotar de **Project Settings → API**: `Project URL`, `anon public key` y `service_role key` (esta última es secreta).
 
-### 2. Cloudflare R2 (videos)
+### 2. Cloudflare R2 (videos) — opcional
+Si no cargás los secretos `R2_*`, los videos se guardan en Supabase Storage (1 GB gratis, ≈200 videos; el bucket `media` lo crea el `schema.sql`). Cuando se llene, activás R2 y listo.
+
 1. Cloudflare → **R2** → activar (pide tarjeta, pero los primeros 10 GB son gratis) → *Create bucket* `radar-creativos`.
 2. En el bucket: **Settings → Public access → R2.dev subdomain → Allow**. Anotar la URL pública (`https://pub-xxxx.r2.dev`).
 3. **R2 → Manage API tokens → Create token** con permiso *Object Read & Write* sobre ese bucket. Anotar `Access Key ID`, `Secret Access Key` y el `Account ID`.

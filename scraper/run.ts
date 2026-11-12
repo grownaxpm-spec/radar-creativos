@@ -4,7 +4,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { runActor } from "./apify.ts";
 import { libraryUrl, normalizeAd, type NormalizedAd } from "./normalize.ts";
-import { makeStore, r2FromEnv } from "./storage.ts";
+import { makeMediaStore } from "./storage.ts";
 import { classifyAds } from "./classify.ts";
 
 function need(name: string): string {
@@ -16,9 +16,8 @@ function need(name: string): string {
 const db = createClient(need("SUPABASE_URL"), need("SUPABASE_SERVICE_ROLE_KEY"), { auth: { persistSession: false } });
 const APIFY_TOKEN = need("APIFY_TOKEN");
 const ACTOR = process.env.APIFY_ACTOR || "apify/facebook-ads-scraper";
-const r2 = r2FromEnv();
-const storeMedia = r2 ? makeStore(r2) : null;
-if (!r2) console.warn("R2 no está configurado: se guardan los links originales de Meta (vencen en pocos días).");
+const storeMedia = makeMediaStore(db);
+if (!storeMedia) console.warn("Sin almacenamiento: se guardan los links originales de Meta (vencen en pocos días).");
 
 type Search = {
   id: string;
@@ -70,14 +69,17 @@ async function processSearch(s: Search) {
   for (const { ad, query } of entries) {
     const t = tags.get(ad.ad_archive_id);
     if (t && !t.relevant) continue; // descartado por la IA
-    const media = storeMedia ? await storeMedia(ad.ad_archive_id, ad.media) : ad.media;
-
     const { data: existing } = await db
       .from("ads")
-      .select("id, countries")
+      .select("id, countries, media")
       .eq("platform", "meta")
       .eq("ad_archive_id", ad.ad_archive_id)
       .maybeSingle();
+
+    // Si ya lo teníamos con los medios guardados de nuestro lado, no los volvemos a descargar
+    const alreadyStored =
+      Array.isArray(existing?.media) && existing.media.length > 0 && existing.media.every((m: { url: string }) => !/fbcdn|facebook\.com/.test(m.url));
+    const media = alreadyStored ? existing!.media : storeMedia ? await storeMedia(ad.ad_archive_id, ad.media) : ad.media;
 
     const row = {
       ...ad,

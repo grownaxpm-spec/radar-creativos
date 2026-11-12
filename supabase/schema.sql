@@ -172,3 +172,8 @@ alter view search_ads set (security_invoker = true);
 create or replace view saved_ads as
   select s.client_id as saved_client_id, s.note as saved_note, v.* from saves s join ads_view v on v.id = s.ad_id;
 alter view saved_ads set (security_invoker = true);
+
+-- ---------- Almacenamiento de videos en Supabase (si no usan Cloudflare R2) ----------
+insert into storage.buckets (id, name, public, file_size_limit)
+values ('media', 'media', true, 47185920)
+on conflict (id) do nothing;

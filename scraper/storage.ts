@@ -18,40 +18,59 @@ export function r2FromEnv(): R2Config | null {
   };
 }
 
-export function makeStore(cfg: R2Config) {
+type Store = (adId: string, media: MediaItem[]) => Promise<MediaItem[]>;
+type Putter = (key: string, body: Buffer, contentType: string | undefined) => Promise<string>;
+
+/** Arma el guardado de medios: R2 si está configurado; si no, Supabase Storage (bucket público "media"). */
+export function makeMediaStore(supabase?: { storage: any; url?: string }): Store | null {
+  const r2 = r2FromEnv();
+  if (r2) return makeStore(r2);
+  if (supabase && process.env.SUPABASE_URL && process.env.MEDIA_STORAGE !== "none") {
+    const base = process.env.SUPABASE_URL.replace(/\/$/, "");
+    const put: Putter = async (key, body, contentType) => {
+      const { error } = await supabase.storage.from("media").upload(key, body, { contentType, upsert: true, cacheControl: "31536000" });
+      if (error) throw error;
+      return `${base}/storage/v1/object/public/media/${key}`;
+    };
+    return withPutter(put, async () => false, 45 * 1024 * 1024);
+  }
+  return null;
+}
+
+export function makeStore(cfg: R2Config): Store {
   const s3 = new S3Client({
     region: "auto",
     endpoint: `https://${cfg.accountId}.r2.cloudflarestorage.com`,
     credentials: { accessKeyId: cfg.accessKeyId, secretAccessKey: cfg.secretAccessKey },
   });
-
-  async function exists(key: string) {
+  const exists = async (key: string) => {
     try {
       await s3.send(new HeadObjectCommand({ Bucket: cfg.bucket, Key: key }));
-      return true;
+      return `${cfg.publicUrl}/${key}`;
     } catch {
       return false;
     }
-  }
+  };
+  const put: Putter = async (key, body, contentType) => {
+    await s3.send(
+      new PutObjectCommand({ Bucket: cfg.bucket, Key: key, Body: body, ContentType: contentType, CacheControl: "public, max-age=31536000, immutable" }),
+    );
+    return `${cfg.publicUrl}/${key}`;
+  };
+  return withPutter(put, exists, MAX_BYTES);
+}
 
+function withPutter(put: Putter, exists: (key: string) => Promise<string | false>, maxBytes: number): Store {
   async function copy(url: string, key: string): Promise<string | null> {
-    if (await exists(key)) return `${cfg.publicUrl}/${key}`;
+    const already = await exists(key);
+    if (already) return already;
     const res = await fetch(url);
     if (!res.ok) return null;
     const len = Number(res.headers.get("content-length") ?? 0);
-    if (len > MAX_BYTES) return null;
+    if (len > maxBytes) return null;
     const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.length > MAX_BYTES) return null;
-    await s3.send(
-      new PutObjectCommand({
-        Bucket: cfg.bucket,
-        Key: key,
-        Body: buf,
-        ContentType: res.headers.get("content-type") ?? undefined,
-        CacheControl: "public, max-age=31536000, immutable",
-      }),
-    );
-    return `${cfg.publicUrl}/${key}`;
+    if (buf.length > maxBytes) return null;
+    return put(key, buf, res.headers.get("content-type") ?? undefined);
   }
 
   /** Devuelve la lista de medios con URLs propias (las que fallan quedan con la URL original). */
