@@ -177,3 +177,7 @@ alter view saved_ads set (security_invoker = true);
 insert into storage.buckets (id, name, public, file_size_limit)
 values ('media', 'media', true, 47185920)
 on conflict (id) do nothing;
+
+-- is_team solo la necesitan los usuarios logueados (la usan las políticas RLS)
+revoke execute on function public.is_team() from public, anon;
+grant execute on function public.is_team() to authenticated;
