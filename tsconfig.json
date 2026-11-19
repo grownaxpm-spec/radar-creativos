@@ -1,15 +1,23 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "jsx": "react-jsx",
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,
-    "allowImportingTsExtensions": true,
-    "types": ["node", "vite/client"]
+    "allowImportingTsExtensions": true
   },
-  "include": ["src", "scraper", "functions", "server", "api"]
+  "include": [
+    "src",
+    "scraper",
+    "functions",
+    "api"
+  ]
 }
