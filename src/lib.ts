@@ -26,12 +26,48 @@ export type Ad = {
   snapshot_url: string;
   angle: string | null;
   hook: string | null;
+  hook_type: string | null;
+  why_it_works: string | null;
+  adaptation: string | null;
+  ai_score: number | null;
   ai_summary: string | null;
+  score: number | null;
+  variations: number | null;
   days_active: number;
   first_seen: string;
 };
 
-export type Client = { id: string; name: string; rubro: string | null; drive_folder_url: string | null };
+export type Client = {
+  id: string;
+  name: string;
+  rubro: string | null;
+  drive_folder_url: string | null;
+  website: string | null;
+  instagram: string | null;
+  usp: string | null;
+  target: string | null;
+  messages: string[];
+  tone: string | null;
+  avoid: string | null;
+  competitors: string[];
+  keywords: string[];
+  notes: string | null;
+};
+
+export const HOOK_TYPES = [
+  "Pregunta",
+  "Dolor / problema",
+  "Demostración de producto",
+  "Detalle / calidad",
+  "Testimonio / UGC",
+  "Antes y después / comparación",
+  "Oferta / precio",
+  "Lifestyle / aspiracional",
+  "Proceso / fabricación",
+  "Novedad / lanzamiento",
+  "Autoridad / datos",
+  "Otro",
+];
 
 export type Search = {
   id: string;

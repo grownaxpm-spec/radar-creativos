@@ -27,10 +27,27 @@ export default function SearchPage() {
     return () => clearInterval(t);
   }, []);
 
+  // Al elegir un cliente, se completa con su perfil (rubro, palabras clave y competidores)
   useEffect(() => {
     const c = clients.find((x) => x.id === clientId);
-    if (c?.rubro && !rubro) setRubro(c.rubro);
+    if (!c) return;
+    if (c.rubro) setRubro(c.rubro);
+    const kw = [...(c.keywords ?? []), ...(c.competitors ?? [])];
+    if (kw.length) setKeywords(kw.join("\n"));
   }, [clientId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function runNow(id: string) {
+    await supabase.from("searches").update({ status: "pending", error: null }).eq("id", id);
+    const { data: sess } = await supabase.auth.getSession();
+    const res = await fetch("/api/start-search", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${sess.session?.access_token}` },
+      body: JSON.stringify({ search_id: id }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) alert(`No pude arrancarla: ${body.error ?? res.status}`);
+    load();
+  }
 
   const kw = keywords.split("\n").map((s) => s.trim()).filter(Boolean);
   const estimate = Math.max(1, kw.length) * countries.length * perQuery;
@@ -98,7 +115,7 @@ export default function SearchPage() {
             onChange={(e) => setKeywords(e.target.value)}
             placeholder={"zapatos de cuero hombre\nbotas de cuero\nmocasines\nzapatillas de cuero\nzapatos de vestir"}
           />
-          <small className="muted">Tip: pedile a Claude “dame 8 palabras clave para buscar anuncios de [rubro] en la Biblioteca de Meta” y pegalas acá. Podés poner nombres de marcas competidoras.</small>
+          <small className="muted">Si elegís un cliente se completan solas con las palabras clave y competidores de su perfil. Podés sumar o sacar.</small>
         </label>
         <fieldset>
           <legend>Países</legend>
@@ -156,6 +173,11 @@ export default function SearchPage() {
               <div className="right">
                 <span className={`status ${s.status}`}>{STATUS[s.status] ?? s.status}</span>
                 {s.status === "done" && <Link to={`/?busqueda=${s.id}`}>{s.total_found} anuncios →</Link>}
+                {s.status !== "running" && (
+                  <button className="ghost small" onClick={() => runNow(s.id)}>
+                    {s.status === "done" ? "Actualizar" : "Correr ahora"}
+                  </button>
+                )}
               </div>
             </li>
           ))}

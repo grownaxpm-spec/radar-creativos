@@ -181,3 +181,37 @@ on conflict (id) do nothing;
 -- is_team solo la necesitan los usuarios logueados (la usan las políticas RLS)
 revoke execute on function public.is_team() from public, anon;
 grant execute on function public.is_team() to authenticated;
+
+-- ---------- Perfil del cliente y señales de "ganador" (v2) ----------
+alter table clients add column if not exists website text;
+alter table clients add column if not exists instagram text;
+alter table clients add column if not exists usp text;
+alter table clients add column if not exists target text;
+alter table clients add column if not exists messages text[] not null default '{}';
+alter table clients add column if not exists tone text;
+alter table clients add column if not exists avoid text;
+alter table clients add column if not exists competitors text[] not null default '{}';
+alter table clients add column if not exists keywords text[] not null default '{}';
+alter table clients add column if not exists notes text;
+
+alter table ads add column if not exists variations int;
+alter table ads add column if not exists score numeric;
+alter table ads add column if not exists hook_type text;
+alter table ads add column if not exists why_it_works text;
+alter table ads add column if not exists adaptation text;
+alter table ads add column if not exists ai_score int;
+
+alter table searches add column if not exists include_inactive boolean not null default false;
+
+drop view if exists saved_ads;
+drop view if exists search_ads;
+drop view if exists ads_view;
+create view ads_view as
+  select a.*, greatest(0, coalesce(a.end_date, current_date) - a.start_date) as days_active from ads a;
+alter view ads_view set (security_invoker = true);
+create view search_ads as
+  select sr.search_id, v.* from search_results sr join ads_view v on v.id = sr.ad_id;
+alter view search_ads set (security_invoker = true);
+create view saved_ads as
+  select s.client_id as saved_client_id, s.note as saved_note, v.* from saves s join ads_view v on v.id = s.ad_id;
+alter view saved_ads set (security_invoker = true);

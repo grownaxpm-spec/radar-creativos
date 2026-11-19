@@ -60,13 +60,14 @@ Repo → **Settings → Secrets and variables → Actions → New repository sec
 | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | del paso 2 |
 | `R2_BUCKET` | `radar-creativos` |
 | `R2_PUBLIC_URL` | `https://pub-xxxx.r2.dev` |
-| `ANTHROPIC_API_KEY` | *(opcional)* activa el filtro de ruido y los ángulos con IA |
+| `ANTHROPIC_API_KEY` | *(recomendado)* activa el análisis con IA: descarta ruido, detecta el hook, explica por qué funciona y cómo adaptarlo al cliente (≈ centavos por búsqueda con Haiku) |
 
 Variables opcionales (pestaña *Variables*): `APIFY_ACTOR` (por defecto `apify/facebook-ads-scraper`), `CLAUDE_MODEL` (por defecto `claude-haiku-5-5`, el más barato).
 
 ## Uso diario
 - **Buscar**: rubro, palabras clave (una por línea), países. Tarda unos minutos. Con "Repetir cada semana" se actualiza sola.
-- **Biblioteca**: ordenada por días activo (cuanto más tiempo una marca sostiene un anuncio, más probable que le funcione). ☆ guarda en *Favoritos generales* o en la biblioteca del cliente elegido arriba.
+- **Clientes**: cada cliente tiene un perfil (USP, público, mensajes guía, tono, qué no decir, competidores, palabras clave). Al buscar para un cliente, la IA lo usa para filtrar y adaptar.
+- **Biblioteca**: ordenada por puntaje de probable ganador (días activo + variaciones del mismo creativo + activo/países/plataformas + calidad creativa según la IA). También se puede ordenar por días activo (cuanto más tiempo una marca sostiene un anuncio, más probable que le funcione). ☆ guarda en *Favoritos generales* o en la biblioteca del cliente elegido arriba.
 - **Pedido**: elegí anuncios → *Crear pedido de piezas* → completá formato y notas → *Copiar para Claude* → pegalo en Claude. El link `/p/...` se puede mandar al cliente sin login.
 
 ## Costos

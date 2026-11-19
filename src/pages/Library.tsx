@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase, type Ad, type Client, type Search } from "../lib.ts";
+import { HOOK_TYPES, supabase, type Ad, type Client, type Search } from "../lib.ts";
 import { useSelection } from "../App.tsx";
 import AdCard from "./AdCard.tsx";
 
@@ -23,7 +23,8 @@ export default function Library() {
   const [onlySaved, setOnlySaved] = useState(false);
   const [format, setFormat] = useState("");
   const [country, setCountry] = useState("");
-  const [order, setOrder] = useState<"days" | "recent">("days");
+  const [order, setOrder] = useState<"score" | "days" | "recent">("score");
+  const [hookType, setHookType] = useState("");
   const [q, setQ] = useState("");
   const [page, setPage] = useState(0);
 
@@ -39,7 +40,7 @@ export default function Library() {
     query.then(({ data }) => setSaves(new Set((data ?? []).map((r) => r.ad_id))));
   }, [clientId]);
 
-  useEffect(() => setPage(0), [searchId, clientId, onlySaved, format, country, order, q]);
+  useEffect(() => setPage(0), [searchId, clientId, onlySaved, format, country, order, q, hookType]);
 
   useEffect(() => {
     let cancelled = false;
@@ -58,12 +59,15 @@ export default function Library() {
         query = query.in("id", (data ?? []).map((r) => r.ad_id));
       }
       if (format) query = query.eq("format", format);
+      if (hookType) query = query.eq("hook_type", hookType);
       if (country) query = query.contains("countries", [country]);
       if (q.trim()) query = query.or(`body.ilike.%${q.trim()}%,page_name.ilike.%${q.trim()}%`);
       query =
-        order === "days"
-          ? query.order("days_active", { ascending: false, nullsFirst: false })
-          : query.order("first_seen", { ascending: false });
+        order === "score"
+          ? query.order("score", { ascending: false, nullsFirst: false }).order("days_active", { ascending: false })
+          : order === "days"
+            ? query.order("days_active", { ascending: false, nullsFirst: false })
+            : query.order("first_seen", { ascending: false });
       const { data } = await query.range(page * PAGE, page * PAGE + PAGE);
       if (cancelled) return;
       const rows = (data ?? []) as Ad[];
@@ -74,7 +78,7 @@ export default function Library() {
     return () => {
       cancelled = true;
     };
-  }, [searchId, onlySaved, clientId, onlySaved ? saves : null, format, country, order, q, page]);
+  }, [searchId, onlySaved, clientId, onlySaved ? saves : null, format, country, order, q, page, hookType]);
 
   async function toggleSave(ad: Ad) {
     const has = saves.has(ad.id);
@@ -157,7 +161,14 @@ export default function Library() {
             <option key={c}>{c}</option>
           ))}
         </select>
-        <select value={order} onChange={(e) => setOrder(e.target.value as "days" | "recent")}>
+        <select value={hookType} onChange={(e) => setHookType(e.target.value)}>
+          <option value="">Todos los hooks</option>
+          {HOOK_TYPES.map((h) => (
+            <option key={h}>{h}</option>
+          ))}
+        </select>
+        <select value={order} onChange={(e) => setOrder(e.target.value as "score" | "days" | "recent")}>
+          <option value="score">Mejor puntaje primero</option>
           <option value="days">Más días activo primero</option>
           <option value="recent">Más nuevos primero</option>
         </select>

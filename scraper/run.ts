@@ -3,9 +3,9 @@
 //       sin search_id: corre las pendientes y las recurrentes que tienen más de 7 días.
 import { createClient } from "@supabase/supabase-js";
 import { runActor } from "./apify.ts";
-import { libraryUrl, normalizeAd, type NormalizedAd } from "./normalize.ts";
+import { daysActive, libraryUrl, normalizeAd, winnerScore, type NormalizedAd } from "./normalize.ts";
 import { makeMediaStore } from "./storage.ts";
-import { classifyAds } from "./classify.ts";
+import { classifyAds, type ClientProfile } from "./classify.ts";
 
 if (!process.env.SUPABASE_URL || !process.env.APIFY_TOKEN) {
   console.log("Todavía no están cargados los secretos (SUPABASE_URL / APIFY_TOKEN). No hay nada para hacer.");
@@ -26,6 +26,8 @@ if (!storeMedia) console.warn("Sin almacenamiento: se guardan los links original
 
 type Search = {
   id: string;
+  client_id: string | null;
+  include_inactive?: boolean;
   rubro: string;
   keywords: string[];
   countries: string[];
@@ -39,10 +41,17 @@ async function processSearch(s: Search) {
 
   const keywords = s.keywords.length ? s.keywords : [s.rubro];
   const found = new Map<string, { ad: NormalizedAd; query: string }>();
+  const errors: string[] = [];
+
+  let client: ClientProfile | null = null;
+  if (s.client_id) {
+    const { data } = await db.from("clients").select("name, rubro, usp, target, messages, tone, avoid").eq("id", s.client_id).maybeSingle();
+    client = data as ClientProfile | null;
+  }
 
   for (const country of s.countries) {
     for (const q of keywords) {
-      const url = libraryUrl(q, country, s.media_type);
+      const url = libraryUrl(q, country, s.media_type, s.include_inactive ? "all" : "active");
       try {
         const raw = await runActor(url, s.max_per_query, { token: APIFY_TOKEN, actor: ACTOR });
         let n = 0;
@@ -59,16 +68,30 @@ async function processSearch(s: Search) {
         console.log(`  ${country} · "${q}": ${n} anuncios`);
       } catch (err) {
         console.warn(`  ${country} · "${q}": error — ${(err as Error).message}`);
+        errors.push((err as Error).message);
       }
     }
   }
 
-  // IA opcional: filtra ruido y etiqueta
+  if (found.size === 0 && errors.length > 0) throw new Error(`Apify falló en todas las consultas: ${errors[0]}`);
+
+  // IA opcional: filtra ruido, detecta hook y propone adaptación al cliente
   const entries = [...found.values()];
   const tags = await classifyAds(
     s.rubro,
-    entries.map(({ ad }) => ({ id: ad.ad_archive_id, page_name: ad.page_name, body: ad.body, title: ad.title, format: ad.format })),
+    client,
+    entries.map(({ ad }) => ({
+      id: ad.ad_archive_id,
+      page_name: ad.page_name,
+      body: ad.body,
+      title: ad.title,
+      format: ad.format,
+      days_active: daysActive(ad),
+      variations: ad.variations,
+      image_url: ad.media.find((m) => m.type === "image")?.url ?? ad.media[0]?.thumb ?? null,
+    })),
   );
+  console.log(`  IA: ${tags.size} anuncios analizados`);
 
   let saved = 0;
   for (const { ad, query } of entries) {
@@ -91,7 +114,19 @@ async function processSearch(s: Search) {
       media,
       countries: [...new Set([...(existing?.countries ?? []), ...ad.countries])],
       last_seen: new Date().toISOString(),
-      ...(t ? { relevant: t.relevant, angle: t.angle, hook: t.hook, ai_summary: t.summary } : {}),
+      score: winnerScore(ad, t?.ai_score),
+      ...(t
+        ? {
+            relevant: t.relevant,
+            angle: t.angle,
+            hook: t.hook,
+            hook_type: t.hook_type,
+            why_it_works: t.why_it_works,
+            adaptation: t.adaptation,
+            ai_score: t.ai_score,
+            ai_summary: t.summary,
+          }
+        : {}),
     };
     const { data: up, error } = await db.from("ads").upsert(row, { onConflict: "platform,ad_archive_id" }).select("id").single();
     if (error || !up) {

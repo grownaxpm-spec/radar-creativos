@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { normalizeAd, libraryUrl, daysActive } from "./normalize.ts";
+import { normalizeAd, libraryUrl, daysActive, winnerScore } from "./normalize.ts";
 
 test("anuncio de video (camelCase, apify/facebook-ads-scraper)", () => {
   const ad = normalizeAd(
@@ -51,4 +51,19 @@ test("sin id devuelve null; url y días", () => {
   assert.equal(normalizeAd({ pageName: "x" }), null);
   assert.match(libraryUrl("zapatos de cuero", "ES", "video"), /country=ES.*q=zapatos\+de\+cuero.*media_type=video/);
   assert.equal(daysActive({ start_date: "2026-01-01", end_date: "2026-01-31" }), 30);
+});
+
+test("puntaje: más días y más variaciones = más alto", () => {
+  const today = new Date("2026-11-19");
+  const base = { is_active: true, countries: ["AR"], publisher_platforms: ["facebook"], end_date: null };
+  const nuevo = winnerScore({ ...base, start_date: "2026-11-15", variations: 1 }, null, today);
+  const viejo = winnerScore({ ...base, start_date: "2026-08-01", variations: 1 }, null, today);
+  const escalado = winnerScore({ ...base, start_date: "2026-08-01", variations: 8, publisher_platforms: ["facebook", "instagram"] }, null, today);
+  assert.ok(nuevo < viejo && viejo < escalado, `${nuevo} < ${viejo} < ${escalado}`);
+  assert.ok(escalado <= 100);
+});
+
+test("variaciones desde collationCount", () => {
+  const ad = normalizeAd({ adArchiveID: "5", collationCount: 4, snapshot: { images: [{ originalImageUrl: "https://i/x.jpg" }] } })!;
+  assert.equal(ad.variations, 4);
 });

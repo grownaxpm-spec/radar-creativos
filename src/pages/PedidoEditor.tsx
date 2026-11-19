@@ -70,6 +70,9 @@ export default function PedidoEditor() {
         return [
           `${k + 1}. ${it.piece_name ?? `Pieza ${k + 1}`} — formato pedido: ${it.format ?? "a definir"}${it.angle ? ` — ángulo: ${it.angle}` : ""}`,
           a ? `   Referencia: ${a.page_name ?? "marca"} (${a.format}, ${a.days_active} días activo, ${a.countries.join("/")})` : "",
+          a?.hook ? `   Hook: ${a.hook}${a.hook_type ? ` (${a.hook_type})` : ""}` : "",
+          a?.why_it_works ? `   Por qué funciona: ${a.why_it_works}` : "",
+          a?.adaptation ? `   Idea de adaptación: ${a.adaptation}` : "",
           a?.body ? `   Texto del anuncio: "${a.body.replace(/\s+/g, " ").slice(0, 400)}"` : "",
           media ? `   Medios: ${media}` : "",
           a ? `   Ficha en Meta: ${a.snapshot_url}` : "",
@@ -83,6 +86,7 @@ export default function PedidoEditor() {
     return `Armá un pedido de piezas usando la skill pedido-creativos.
 
 Cliente: ${client?.name ?? "(sin cliente)"}${client?.rubro ? ` — rubro: ${client.rubro}` : ""}
+${client?.usp ? `Propuesta de valor: ${client.usp}\n` : ""}${client?.target ? `Público: ${client.target}\n` : ""}${client?.messages?.length ? `Mensajes guía: ${client.messages.join(" | ")}\n` : ""}${client?.tone ? `Tono: ${client.tone}\n` : ""}${client?.avoid ? `No comunicar: ${client.avoid}\n` : ""}${client?.notes ? `Notas: ${client.notes}\n` : ""}
 Título: ${p!.title}
 ${p!.objective ? `Objetivo: ${p!.objective}\n` : ""}${p!.notes ? `Notas generales: ${p!.notes}\n` : ""}
 Referencias elegidas (anuncios de la competencia de la Biblioteca de Meta):

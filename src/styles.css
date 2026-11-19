@@ -133,3 +133,10 @@ button.danger { color: var(--danger); border-color: var(--danger); }
 .public { max-width: 960px; margin: 0 auto; padding: 24px 16px; }
 .public-head h1 { margin: 4px 0 8px; }
 .public .piece h2 { margin: 0 0 8px; font-size: 18px; }
+
+.chip.hook { background: #fef3c7; color: #92400e; border-color: transparent; }
+.insight { font-size: 13px; background: var(--bg); border-radius: 8px; padding: 6px 10px; }
+.insight summary { cursor: pointer; font-weight: 600; color: var(--accent); }
+.insight p { margin: 6px 0 0; }
+.profile-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+@media (max-width: 700px) { .profile-grid { grid-template-columns: 1fr; } }

@@ -20,6 +20,7 @@ export type NormalizedAd = {
   end_date: string | null;
   is_active: boolean | null;
   snapshot_url: string;
+  variations: number | null;
 };
 
 type Raw = Record<string, any>;
@@ -113,12 +114,13 @@ export function normalizeAd(raw: Raw, country?: string): NormalizedAd | null {
     end_date: toDate(pick(raw, "endDate", "end_date", "endDateFormatted")),
     is_active: pick(raw, "isActive", "is_active") ?? null,
     snapshot_url: `https://www.facebook.com/ads/library/?id=${id}`,
+    variations: Number(pick(raw, "collationCount", "collation_count")) || null,
   };
 }
 
-export function libraryUrl(q: string, country: string, mediaType: string): string {
+export function libraryUrl(q: string, country: string, mediaType: string, status: "active" | "all" = "active"): string {
   const p = new URLSearchParams({
-    active_status: "active",
+    active_status: status,
     ad_type: "all",
     country,
     q,
@@ -132,4 +134,27 @@ export function daysActive(ad: Pick<NormalizedAd, "start_date" | "end_date">, to
   if (!ad.start_date) return 0;
   const end = ad.end_date ? new Date(ad.end_date) : today;
   return Math.max(0, Math.round((end.getTime() - new Date(ad.start_date).getTime()) / 86400000));
+}
+
+/**
+ * Puntaje 0-100 de "probable ganador" sin IA, con señales públicas de la Biblioteca:
+ * - días activo (una marca no sostiene meses un anuncio que no vende)
+ * - variaciones del mismo creativo (si lo duplican, lo están escalando)
+ * - sigue activo, en varios países o varias plataformas
+ * Si hay puntaje de la IA (1-10) se mezcla: 75% señales + 25% calidad creativa.
+ */
+export function winnerScore(
+  ad: Pick<NormalizedAd, "start_date" | "end_date" | "is_active" | "variations" | "countries" | "publisher_platforms">,
+  aiScore?: number | null,
+  today = new Date(),
+): number {
+  const days = daysActive(ad, today);
+  let s = (Math.min(days, 90) / 90) * 50;
+  s += (Math.min(ad.variations ?? 1, 10) - 1) / 9 * 25;
+  if (ad.is_active !== false) s += 10;
+  if (ad.countries.length > 1) s += 5;
+  if (ad.publisher_platforms.length > 1) s += 10;
+  s = Math.min(100, s);
+  if (aiScore != null) s = 0.75 * s + 2.5 * Math.max(1, Math.min(10, aiScore));
+  return Math.round(s);
 }

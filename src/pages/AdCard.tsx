@@ -43,18 +43,37 @@ export default function AdCard({
       <div className="ad-body">
         <div className="row between">
           <b className="ellipsis">{ad.page_name ?? "Sin nombre"}</b>
-          <span className={`badge ${ad.days_active >= 30 ? "hot" : ""}`} title="Días activo: cuanto más tiempo lo sostiene la marca, más probable que le funcione">
-            {ad.days_active} días
+          <span className="row" style={{ gap: 4 }}>
+            {ad.score != null && (
+              <span
+                className={`badge ${ad.score >= 70 ? "hot" : ""}`}
+                title="Puntaje de probable ganador (0-100): días activo, variaciones del mismo creativo, si sigue activo, países y plataformas, más la calidad creativa según la IA"
+              >
+                ★ {ad.score}
+              </span>
+            )}
+            <span className="badge" title="Días activo: cuanto más tiempo lo sostiene la marca, más probable que le funcione">
+              {ad.days_active} días
+            </span>
           </span>
         </div>
         <div className="chips">
           <span className="chip">{formatLabel(ad.format)}</span>
+          {ad.hook_type && <span className="chip hook">{ad.hook_type}</span>}
           {ad.angle && <span className="chip angle">{ad.angle}</span>}
+          {(ad.variations ?? 1) > 1 && <span className="chip light" title="Variaciones del mismo creativo: si lo duplican, lo están escalando">×{ad.variations}</span>}
           {ad.countries.map((c) => (
             <span key={c} className="chip light">{c}</span>
           ))}
         </div>
-        {ad.hook && <p className="hook">“{ad.hook}”</p>}
+        {ad.hook && <p className="hook"><b>Hook:</b> “{ad.hook}”</p>}
+        {(ad.why_it_works || ad.adaptation) && (
+          <details className="insight">
+            <summary>Por qué funciona y cómo adaptarlo</summary>
+            {ad.why_it_works && <p><b>Por qué funciona:</b> {ad.why_it_works}</p>}
+            {ad.adaptation && <p><b>Para el cliente:</b> {ad.adaptation}</p>}
+          </details>
+        )}
         {ad.body && (
           <p className={`copy ${open ? "open" : ""}`} onClick={() => setOpen(!open)}>
             {ad.body}
