@@ -215,3 +215,10 @@ alter view search_ads set (security_invoker = true);
 create view saved_ads as
   select s.client_id as saved_client_id, s.note as saved_note, v.* from saves s join ads_view v on v.id = s.ad_id;
 alter view saved_ads set (security_invoker = true);
+
+-- ---------- Permisos de tabla para usuarios logueados (RLS decide qué filas ve cada uno) ----------
+grant usage on schema public to authenticated;
+grant select, insert, update, delete on all tables in schema public to authenticated;
+grant usage, select on all sequences in schema public to authenticated;
+alter default privileges in schema public grant select, insert, update, delete on tables to authenticated;
+alter default privileges in schema public grant usage, select on sequences to authenticated;
