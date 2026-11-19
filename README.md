@@ -8,8 +8,8 @@ Buscador de referencias de anuncios (Biblioteca de Anuncios de Meta) para armar 
 
 | Parte | Servicio | Dónde está en el código |
 |---|---|---|
-| Aplicación web | Cloudflare Pages | `src/` |
-| Botón "Empezar búsqueda" | Cloudflare Pages Function | `functions/api/start-search.ts` |
+| Aplicación web | Vercel (o Cloudflare Pages) | `src/`, `vercel.json` |
+| Botón "Empezar búsqueda" | Vercel Function (o Cloudflare Pages Function) | `api/start-search.ts`, `server/startSearch.ts` |
 | Base de datos, login, favoritos | Supabase | `supabase/schema.sql` |
 | Búsqueda en la Biblioteca de Meta | Apify, corrido desde GitHub Actions | `scraper/`, `.github/workflows/scrape.yml` |
 | Videos e imágenes guardados | Cloudflare R2 (o Supabase Storage si no hay R2) | `scraper/storage.ts` |
@@ -34,7 +34,12 @@ Si no cargás los secretos `R2_*`, los videos se guardan en Supabase Storage (1 
 2. En el bucket: **Settings → Public access → R2.dev subdomain → Allow**. Anotar la URL pública (`https://pub-xxxx.r2.dev`).
 3. **R2 → Manage API tokens → Create token** con permiso *Object Read & Write* sobre ese bucket. Anotar `Access Key ID`, `Secret Access Key` y el `Account ID`.
 
-### 3. Cloudflare Pages (la aplicación)
+### 3. Vercel (la aplicación)
+1. vercel.com → **Add New → Project** → importar este repositorio de GitHub (la configuración se lee de `vercel.json`).
+2. **Environment Variables**: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `GITHUB_REPO` y `GITHUB_TOKEN` (mismos valores que abajo).
+3. Deploy. La URL queda tipo `https://radar-creativos.vercel.app`.
+
+### 3 (alternativa). Cloudflare Pages
 1. **Workers & Pages → Create → Pages → Connect to Git** → elegir este repositorio.
 2. Build command: `npm run build` · Output directory: `dist`.
 3. Variables de entorno (Settings → Variables):
