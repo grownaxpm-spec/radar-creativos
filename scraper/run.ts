@@ -7,6 +7,11 @@ import { libraryUrl, normalizeAd, type NormalizedAd } from "./normalize.ts";
 import { makeMediaStore } from "./storage.ts";
 import { classifyAds } from "./classify.ts";
 
+if (!process.env.SUPABASE_URL || !process.env.APIFY_TOKEN) {
+  console.log("Todavía no están cargados los secretos (SUPABASE_URL / APIFY_TOKEN). No hay nada para hacer.");
+  process.exit(0);
+}
+
 function need(name: string): string {
   const v = process.env[name];
   if (!v) throw new Error(`Falta la variable ${name}`);
