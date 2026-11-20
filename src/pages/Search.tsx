@@ -15,13 +15,19 @@ export default function SearchPage() {
   const [keywords, setKeywords] = useState("");
   const [countries, setCountries] = useState<string[]>(DEFAULT_COUNTRIES);
   const [media, setMedia] = useState("all");
-  const [total, setTotal] = useState(150);
+  const [total, setTotal] = useState(60);
+  const [cost, setCost] = useState<{ price: number; budget: number; used: number } | null>(null);
   const [recurring, setRecurring] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
   useEffect(() => {
     supabase.from("clients").select("*").order("name").then(({ data }) => setClients(data ?? []));
+    // Cuánto cuesta cada anuncio que trae Apify y cuánto se usó este mes
+    Promise.all([supabase.from("settings").select("key, value"), supabase.from("apify_usage_month").select("ads_this_month").single()]).then(([st, us]) => {
+      const m = new Map((st.data ?? []).map((r) => [r.key, r.value]));
+      setCost({ price: Number(m.get("apify_price_per_1000") ?? 3.4), budget: Number(m.get("monthly_ads_budget") ?? 1400), used: us.data?.ads_this_month ?? 0 });
+    });
   }, []);
 
   // Al elegir un cliente, se completa con su perfil (rubro, palabras clave y competidores)
@@ -34,6 +40,10 @@ export default function SearchPage() {
   }, [clientId, clients]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Palabras clave sin límite: una por línea o separadas por coma
+  // Igual que el buscador: trae como mucho ~1,3 veces lo pedido (mínimo 30)
+  const willFetch = Math.max(30, Math.round(total * 1.3));
+  const overBudget = !!cost && cost.used + willFetch > cost.budget;
+  const usd = (n: number) => `USD ${((n * (cost?.price ?? 3.4)) / 1000).toFixed(2)}`;
   const kw = [...new Set(keywords.split(/[\n,]/).map((s) => s.trim()).filter(Boolean))];
   // Para qué es, en palabras: "Black Friday y Cyber Monday", "Hot Sale"… Vacío o "Always On" = todo el año
   const event = /^\s*(always\s*on|aon|todo el año)?\s*$/i.test(purpose) ? null : purpose.trim();
@@ -157,10 +167,17 @@ export default function SearchPage() {
         <label className="check">
           <input type="checkbox" checked={recurring} onChange={(e) => setRecurring(e.target.checked)} /> Repetir cada semana (trae anuncios nuevos solo)
         </label>
-        <p className="muted small">
-          Alrededor de {total} anuncios entre todos los países. Con el plan gratis de Apify (USD 5/mes) entran entre 1.000 y 3.000 por mes.
+        <p className={`small ${overBudget ? "note" : "muted"}`}>
+          Va a traer como mucho unos {willFetch} anuncios de Apify (≈ {usd(willFetch)}).
+          {cost && (
+            <>
+              {" "}Este mes: {cost.used} de {cost.budget} anuncios (≈ {usd(cost.used)} de {usd(cost.budget)}).
+              {overBudget && " Con esta búsqueda se pasa del tope: pedí menos anuncios."}
+            </>
+          )}
+          {" "}No repite consultas de las últimas 2 semanas (traerían anuncios que ya tenés).
         </p>
-        <button type="submit" disabled={busy || countries.length === 0}>
+        <button type="submit" disabled={busy || countries.length === 0 || overBudget}>
           {busy ? "Arrancando…" : "Empezar búsqueda"}
         </button>
         {msg && <p className="note">{msg}</p>}

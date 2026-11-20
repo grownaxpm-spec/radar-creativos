@@ -9,7 +9,7 @@
 // Secretos que usa (Supabase → Edge Functions → Secrets): APIFY_TOKEN, ANTHROPIC_API_KEY (opcional),
 // APIFY_ACTOR y CLAUDE_MODEL (opcionales). SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY los pone Supabase solo.
 import { createClient } from "@supabase/supabase-js";
-import { daysActive, isBlockedAdvertiser, libraryUrl, matchesRubro, normalizeAd, perQueryLimit, rubroRoots, winnerScore, type MediaItem, type NormalizedAd } from "./normalize.ts";
+import { daysActive, isBlockedAdvertiser, libraryUrl, matchesRubro, normalizeAd, planQueries, queryKey, rubroRoots, winnerScore, type MediaItem, type NormalizedAd } from "./normalize.ts";
 import { getItems, getRun, sourceUrlOf, startRun } from "./apify.ts";
 import { classifyAds, type ClientProfile } from "./classify.ts";
 import { draftPedido } from "./pedido.ts";
@@ -57,6 +57,17 @@ type Search = {
   total_found: number;
 };
 
+// Ajustes editables sin desplegar (tabla settings): actor de Apify, precio y tope mensual
+async function settings() {
+  const { data } = await db.from("settings").select("key, value");
+  const m = new Map((data ?? []).map((r) => [r.key, r.value]));
+  return {
+    actor: (m.get("apify_actor") as string) || ACTOR,
+    price: Number(m.get("apify_price_per_1000") ?? 3.4),
+    budget: Number(m.get("monthly_ads_budget") ?? 1400),
+  };
+}
+
 const setSearch = (id: string, patch: Record<string, unknown>) => db.from("searches").update(patch).eq("id", id);
 
 // ---------- Arrancar ----------
@@ -68,17 +79,28 @@ async function start(s: Search) {
   const base = s.keywords.length ? s.keywords : [s.rubro];
   // Para eventos (Black Friday, Cyber, Hot Sale…) se suma una búsqueda por cada evento nombrado
   const events = (s.event ?? "").split(/\s*(?:,|\/|\+|;|\by\b|\be\b)\s*/i).map((x) => x.trim()).filter((x) => x.length > 2);
-  const keywords = [...new Set([...base, ...events.map((ev) => `${ev} ${base[0]}`)])];
-  const queries = s.countries.flatMap((country) =>
-    keywords.map((q) => ({ q, country, url: libraryUrl(q, country, s.media_type, s.include_inactive ? "all" : "active") })),
-  );
   try {
-    // Con un total, no se fuerza un número por país: se pide un poco de más y queda lo que traiga cada uno
-    const perQuery = s.max_total ? perQueryLimit(s.max_total, queries.length) : s.max_per_query;
+    const cfg = await settings();
+    // Consultas hechas en las últimas 2 semanas: traerían repetidos (se pagan y se tiran), van al final
+    const since = new Date(Date.now() - 14 * 86400000).toISOString();
+    const { data: prev } = await db.from("searches").select("queries").neq("id", s.id).gt("created_at", since).not("queries", "is", null);
+    const recent = new Set<string>();
+    for (const r of prev ?? []) for (const x of (r.queries ?? []) as { q: string; country: string }[]) recent.add(queryKey(x.q, x.country));
+    const plan = planQueries({ keywords: base, events, countries: s.countries, total: s.max_total ?? 60, recent });
+    const queries = plan.queries.map((x) => ({ ...x, url: libraryUrl(x.q, x.country, s.media_type, s.include_inactive ? "all" : "active") }));
+    // Tope del mes: Apify cobra por anuncio traído
+    const { data: use } = await db.from("apify_usage_month").select("ads_this_month").single();
+    const used = use?.ads_this_month ?? 0;
+    if (used + plan.planned > cfg.budget) {
+      throw new Error(
+        `Esta búsqueda traería unos ${plan.planned} anuncios y este mes ya se usaron ${used} de ${cfg.budget} (≈ USD ${((used * cfg.price) / 1000).toFixed(2)}). ` +
+          "Pedí menos anuncios o subí el tope del mes.",
+      );
+    }
     const { runId, datasetId } = await startRun(
       queries.map((x) => x.url),
-      perQuery,
-      { token: APIFY_TOKEN, actor: ACTOR, webhookUrl: `${SELF_URL}?action=tick&search_id=${s.id}` },
+      plan.perQuery,
+      { token: APIFY_TOKEN, actor: cfg.actor, webhookUrl: `${SELF_URL}?action=tick&search_id=${s.id}` },
     );
     await setSearch(s.id, {
       status: "running",
@@ -86,6 +108,8 @@ async function start(s: Search) {
       apify_run_id: runId,
       apify_dataset_id: datasetId,
       queries,
+      max_per_query: plan.perQuery,
+      planned_items: plan.planned,
       processed: 0,
       total_items: null,
       total_found: 0,

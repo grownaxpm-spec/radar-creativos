@@ -107,3 +107,16 @@ test("detecta anuncios de catálogo y reparte el total entre consultas", () => {
   assert.equal(perQueryLimit(100, 5), 30);
   assert.equal(perQueryLimit(1000, 2), 100);
 });
+
+import { planQueries, queryKey } from "./normalize.ts";
+test("planQueries: no trae 10 por cada palabra × país", () => {
+  const r = planQueries({ keywords: Array.from({ length: 21 }, (_, i) => `marca${i}`), events: ["Black Friday"], countries: ["AR"], total: 40 });
+  assert.equal(r.queries.length, 5);
+  assert.equal(r.planned, 55); // antes eran 22 consultas × 10 = 220
+  assert.equal(r.queries[0].q, "Black Friday marca0");
+});
+test("planQueries: deja para el final lo que se buscó hace poco", () => {
+  const recent = new Set([queryKey("a", "AR"), queryKey("b", "AR")]);
+  const r = planQueries({ keywords: ["a", "b", "c", "d"], events: [], countries: ["AR"], total: 20, recent });
+  assert.deepEqual(r.queries.map((x) => x.q), ["c", "d", "a"]);
+});

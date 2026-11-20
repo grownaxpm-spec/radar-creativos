@@ -8,7 +8,7 @@ import Pedidos from "./Pedidos.tsx";
 import { ClientForm } from "./Clients.tsx";
 import Groups from "./Groups.tsx";
 
-type Tab = "biblioteca" | "hooks" | "grupos" | "busquedas" | "pedidos" | "perfil";
+type Tab = "biblioteca" | "hooks" | "grupos" | "busquedas" | "pedidos" | "perfil" | "propios";
 const TABS: [Tab, string][] = [
   ["biblioteca", "Biblioteca"],
   ["hooks", "Hooks (5 s)"],
@@ -16,6 +16,7 @@ const TABS: [Tab, string][] = [
   ["busquedas", "Búsquedas"],
   ["pedidos", "Pedidos"],
   ["perfil", "Perfil del cliente"],
+  ["propios", "Anuncios del cliente"],
 ];
 
 export function ClientLogo({ client, size = 40 }: { client: Pick<Client, "name" | "logo_url">; size?: number }) {
@@ -78,6 +79,7 @@ export default function ClientPage() {
       {tab === "biblioteca" && <Library key={`${client.id}-lib`} fixedClientId={client.id} />}
       {tab === "hooks" && <Library key={`${client.id}-hooks`} fixedClientId={client.id} hooksOnly />}
       {tab === "grupos" && <Groups client={client} />}
+      {tab === "propios" && <Library key={`${client.id}-own`} fixedClientId={client.id} ownAds />}
       {tab === "busquedas" && (
         <div className="card">
           <SearchList clientId={client.id} />

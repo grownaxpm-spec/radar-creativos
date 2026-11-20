@@ -16,8 +16,11 @@ const GROUPS: [GroupBy, string][] = [
   ["format", "Por formato"],
 ];
 
-/** Biblioteca de anuncios. Con `fixedClientId` (sección del cliente) muestra solo los anuncios de ese cliente. */
-export default function Library({ fixedClientId, hooksOnly }: { fixedClientId?: string; hooksOnly?: boolean } = {}) {
+/**
+ * Biblioteca de anuncios. Con `fixedClientId` (sección del cliente) muestra solo los anuncios de ese cliente.
+ * Los anuncios propios del cliente (de su cuenta de Meta Ads) no se mezclan con la competencia: van en su propia pestaña (`ownAds`).
+ */
+export default function Library({ fixedClientId, hooksOnly, ownAds }: { fixedClientId?: string; hooksOnly?: boolean; ownAds?: boolean } = {}) {
   const nav = useNavigate();
   const sel = useSelection();
   const [params, setParams] = useSearchParams();
@@ -100,10 +103,13 @@ export default function Library({ fixedClientId, hooksOnly }: { fixedClientId?: 
         ? supabase.from("saved_ads").select("*")
         : searchId
           ? supabase.from("search_ads").select("*").eq("search_id", searchId)
-          : fixedClientId
-            ? supabase.from("client_ads").select("*").eq("client_id", fixedClientId)
-            : supabase.from("ads_view").select("*");
+          : ownAds && fixedClientId
+            ? supabase.from("ads_view").select("*").eq("source", "propio").eq("owner_client_id", fixedClientId)
+            : fixedClientId
+              ? supabase.from("client_ads").select("*").eq("client_id", fixedClientId)
+              : supabase.from("ads_view").select("*");
       query = query.or("relevant.is.null,relevant.eq.true");
+      if (!ownAds) query = query.or("source.is.null,source.neq.propio");
       if (onlySaved) query = clientId ? query.eq("saved_client_id", clientId) : query.is("saved_client_id", null);
       if (onlySaved && searchId) {
         const { data } = await supabase.from("search_results").select("ad_id").eq("search_id", searchId);
@@ -131,7 +137,7 @@ export default function Library({ fixedClientId, hooksOnly }: { fixedClientId?: 
     return () => {
       cancelled = true;
     };
-  }, [searchId, onlySaved, clientId, onlySaved ? saves : null, format, angle, hookType, order, q, page, hookMode, onlySale]);
+  }, [searchId, onlySaved, clientId, onlySaved ? saves : null, format, angle, hookType, order, q, page, hookMode, onlySale, ownAds]);
 
   const visible = useMemo(
     () => ads.filter((a) => !discards.has(a.id) && !(hideUsed && used.has(a.id))),

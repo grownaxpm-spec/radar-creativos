@@ -310,7 +310,7 @@ const TOOLS: Tool[] = [
         cliente: str("Nombre del cliente"),
         palabras_clave: arr("Palabras clave o marcas a buscar, sin límite (por defecto las del perfil del cliente). Sumá las que salgan de la charla"),
         paises: arr("Códigos de país, ej. AR, UY, CL, MX, ES (por defecto AR, ES, MX, US, CO y CL)"),
-        total: num("Cantidad total de anuncios aproximada, entre todos los países (por defecto 150)"),
+        total: num("Cantidad total de anuncios aproximada, entre todos los países (por defecto 60). Cada anuncio que trae Apify se paga: no pidas de más"),
         evento: str("Para qué es, en las palabras del usuario. Puede ser más de un evento: 'Black Friday y Cyber Monday'. Vacío = Always On. Con evento solo entran anuncios de venta directa"),
         que_buscas: str("Lo que el usuario quiere encontrar, contado con sus palabras (tipo de anuncio, oferta, formato, estilo, qué evitar). La IA lo usa como criterio para quedarse o descartar cada anuncio"),
         tipo_medio: { type: "string", enum: ["all", "video", "image"], description: "Video e imagen (all), solo video o solo imagen" },
@@ -325,7 +325,7 @@ const TOOLS: Tool[] = [
       const client = await findClient(a.cliente);
       const keywords = a.palabras_clave?.length ? a.palabras_clave : [...(client.keywords ?? []), ...(client.competitors ?? [])];
       const countries = a.paises?.length ? a.paises.map((x: string) => x.toUpperCase()) : ["AR", "ES", "MX", "US", "CO", "CL"];
-      const total = Math.min(Math.max(Number(a.total) || 150, 20), 1000);
+      const total = Math.min(Math.max(Number(a.total) || 60, 20), 1000);
       const nq = Math.max(1, keywords.length || 1) * countries.length;
       const { data: s, error } = await db
         .from("searches")
@@ -622,11 +622,17 @@ const TOOLS: Tool[] = [
       return {
         cliente: client.name,
         rubro: client.rubro,
+        consumo_del_mes: await (async () => {
+          const { data: u } = await db.from("apify_usage_month").select("ads_this_month").single();
+          const { data: st } = await db.from("settings").select("key, value");
+          const m = new Map((st ?? []).map((r) => [r.key, r.value]));
+          return { anuncios_usados: u?.ads_this_month ?? 0, tope: Number(m.get("monthly_ads_budget") ?? 1400), usd_cada_1000: Number(m.get("apify_price_per_1000") ?? 3.4) };
+        })(),
         preguntas: [
           { campo: "evento", pregunta: "¿Para qué es? (con sus palabras; puede ser más de un evento o Always On)", ejemplos: EVENTS, nota: "Con evento solo entran anuncios de venta directa" },
           { campo: "que_buscas", pregunta: "¿Qué tipo de anuncios querés encontrar? (oferta, formato, estilo, qué evitar)" },
           { campo: "paises", pregunta: "¿De qué países traemos contenido?", por_defecto: ["AR", "ES", "MX", "US", "CO", "CL"], otros: ["UY", "PY", "BO", "PE", "EC", "BR"] },
-          { campo: "total", pregunta: "¿Cuántos anuncios en total (aprox.)?", por_defecto: 150 },
+          { campo: "total", pregunta: "¿Cuántos anuncios en total (aprox.)?", por_defecto: 60, nota: "Se paga cada anuncio que trae Apify (unos USD 3,40 cada 1000 con el actor actual)" },
           { campo: "tipo_medio", pregunta: "¿Video, imagen o ambos?", por_defecto: "ambos" },
           { campo: "palabras_clave", pregunta: "¿Sumamos o sacamos palabras clave?", por_defecto: [...(client.keywords ?? []), ...(client.competitors ?? [])] },
           { campo: "semanal", pregunta: "¿La repetimos cada semana?", por_defecto: false },
@@ -935,7 +941,7 @@ const TOOLS: Tool[] = [
   },
 ];
 
-const SERVER_INFO = { name: "pedido-de-creativos", title: "Pedido de Creativos (Grownax)", version: "2.3.0" };
+const SERVER_INFO = { name: "pedido-de-creativos", title: "Pedido de Creativos (Grownax)", version: "2.4.0" };
 const INSTRUCTIONS =
   "Herramienta de la agencia para encontrar referencias de anuncios de la competencia y armar pedidos de creativos. " +
   "Podés hacer todo lo que hace la herramienta: buscar, ver y filtrar anuncios, favoritos, descartes, grupos, clientes y pedidos (crear, editar piezas, regenerar, borrar). " +

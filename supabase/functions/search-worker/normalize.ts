@@ -215,3 +215,30 @@ export function matchesRubro(ad: Pick<NormalizedAd, "body" | "title" | "page_nam
 export function perQueryLimit(total: number, queries: number): number {
   return Math.max(10, Math.min(100, Math.ceil((total * 1.5) / Math.max(1, queries))));
 }
+
+/**
+ * Arma las consultas (palabra × país) cuidando el costo: Apify cobra por anuncio traído.
+ * - Se trae como mucho ~1,3 veces el total pedido (mínimo 30), no 10 por cada palabra × país.
+ * - Primero las consultas de evento, después las palabras clave repartidas entre países.
+ * - Las consultas que ya se hicieron en los últimos días van al final: traerían anuncios repetidos que se pagan y se tiran.
+ */
+export function planQueries(opts: { keywords: string[]; events: string[]; countries: string[]; total: number; recent?: Set<string> }) {
+  const target = Math.max(30, Math.round(opts.total * 1.3));
+  const maxQueries = Math.max(1, Math.floor(target / 10));
+  const base = opts.keywords.length ? opts.keywords : [""];
+  const pairs: { q: string; country: string }[] = [];
+  for (const ev of opts.events) for (const country of opts.countries) pairs.push({ q: `${ev} ${base[0]}`.trim(), country });
+  for (const q of base) for (const country of opts.countries) if (q) pairs.push({ q, country });
+  const seen = new Set<string>();
+  const unique = pairs.filter((p) => {
+    const k = queryKey(p.q, p.country);
+    return seen.has(k) ? false : (seen.add(k), true);
+  });
+  const recent = opts.recent ?? new Set<string>();
+  const fresh = unique.filter((p) => !recent.has(queryKey(p.q, p.country)));
+  const old = unique.filter((p) => recent.has(queryKey(p.q, p.country)));
+  const queries = [...fresh, ...old].slice(0, maxQueries);
+  const perQuery = Math.max(10, Math.min(100, Math.ceil(target / Math.max(1, queries.length))));
+  return { queries, perQuery, planned: perQuery * queries.length, skipped: unique.length - queries.length };
+}
+export const queryKey = (q: string, country: string) => `${q.trim().toLowerCase()}|${country.toUpperCase()}`;
