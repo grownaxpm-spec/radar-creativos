@@ -15,7 +15,13 @@ export const VideoAnalysis = z.object({
   hook_visual: z.string().describe("Qué se ve en los primeros 3 segundos, concreto (plano, acción, producto, persona)"),
   hook_audio: z.string().describe("Primera frase dicha o texto que abre el video. Vacío si no hay."),
   escenas: z
-    .array(z.object({ desde_seg: z.number(), hasta_seg: z.number(), descripcion: z.string() }))
+    .array(
+      z.object({
+        desde_seg: z.number().describe("Segundo en que empieza el tramo, contado desde 0 (ej. 3 para 0:03, no 0.03)"),
+        hasta_seg: z.number().describe("Segundo en que termina el tramo (ej. 8 para 0:08)"),
+        descripcion: z.string(),
+      }),
+    )
     .describe("Estructura del video en tramos: qué se ve y qué pasa en cada uno"),
   tipo_creativo: z.string().describe("UGC, founder-led, testimonial, producto en uso, demostración, lifestyle, estático animado, etc."),
   quien_habla: z.string().describe("Quién aparece o habla (dueño, vendedor, cliente, modelo, voz en off, nadie)"),
@@ -44,7 +50,8 @@ export async function POST(request: Request): Promise<Response> {
       system:
         "Sos director creativo de una agencia de performance en Argentina. Mirás anuncios de video de la competencia " +
         "(imagen y audio completos) y los desarmás para que el equipo los pueda replicar. Sé literal en la transcripción " +
-        "y concreto en lo visual: planos, acciones, textos, cortes. Escribí el análisis en español rioplatense, sin relleno.",
+        "y concreto en lo visual: planos, acciones, textos, cortes. Los tiempos van en segundos enteros desde el inicio. " +
+        "Escribí el análisis en español rioplatense neutro (sin lunfardo), sin relleno.",
       messages: [
         {
           role: "user",
