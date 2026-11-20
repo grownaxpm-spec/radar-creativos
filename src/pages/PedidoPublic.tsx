@@ -4,6 +4,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { supabase, type Media } from "../lib.ts";
+import { HookVideo } from "./AdCard.tsx";
 import "./pedido.css";
 
 type Ref = { page_name: string | null; body: string | null; format: string; media: Media[]; snapshot_url: string; hook: string | null; why_it_works: string | null; days_active: number };
@@ -22,6 +23,7 @@ type PublicPedido = {
 };
 
 const HOOK_SECONDS = 5;
+
 
 const fmtDate = (d: string) =>
   new Date(`${d}T12:00:00`).toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" });
@@ -56,26 +58,14 @@ export function RefMedia({ media }: { media: Media[] }) {
   );
 }
 
-/** Hook en video: los primeros 5 segundos en loop, sin sonido hasta que lo activen. */
+/** Hook en video: solo los primeros 5 segundos, en loop, con su propia barra (no deja adelantar). */
 function HookClip({ media }: { media: Media[] }) {
   const v = media.find((x) => x.type === "video");
   if (!v) return <RefMedia media={media} />;
   return (
-    <video
-      src={`${v.url}#t=0,${HOOK_SECONDS}`}
-      poster={v.thumb ?? undefined}
-      muted
-      autoPlay
-      playsInline
-      controls
-      preload="metadata"
-      onTimeUpdate={(e) => {
-        if (e.currentTarget.currentTime >= HOOK_SECONDS) {
-          e.currentTarget.currentTime = 0;
-          void e.currentTarget.play();
-        }
-      }}
-    />
+    <div className="hookclip">
+      <HookVideo src={v.url} poster={v.thumb ?? undefined} controls />
+    </div>
   );
 }
 

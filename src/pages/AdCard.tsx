@@ -9,6 +9,71 @@ export const HOOK_SECONDS = 5;
  * se corta en el navegador, el archivo original queda entero.
  * Con `onOpen` (en las tarjetas) el video no tiene controles: un clic lo abre en grande con el análisis.
  */
+/**
+ * Reproductor de hook: solo existen los primeros 5 segundos. Barra propia de 0 a 5 s, sin poder adelantar,
+ * y vuelve a empezar solo. En las tarjetas va sin controles y sin sonido; en grande, con play/pausa y sonido.
+ */
+export function HookVideo({ src, poster, controls }: { src: string; poster?: string; controls?: boolean }) {
+  const ref = useRef<HTMLVideoElement>(null);
+  const [t, setT] = useState(0);
+  const [playing, setPlaying] = useState(true);
+  const [muted, setMuted] = useState(!controls);
+  useEffect(() => {
+    // Revisa seguido para cortar justo en el segundo 5 (timeupdate solo avisa 4 veces por segundo)
+    const id = setInterval(() => {
+      const v = ref.current;
+      if (!v) return;
+      if (v.currentTime >= HOOK_SECONDS || v.ended) {
+        v.currentTime = 0;
+        if (playing) void v.play().catch(() => {});
+      }
+      setT(Math.min(v.currentTime, HOOK_SECONDS));
+    }, 100);
+    return () => clearInterval(id);
+  }, [playing]);
+  const toggle = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const v = ref.current;
+    if (!v) return;
+    if (v.paused) {
+      void v.play().catch(() => {});
+      setPlaying(true);
+    } else {
+      v.pause();
+      setPlaying(false);
+    }
+  };
+  return (
+    <>
+      <video
+        ref={ref}
+        src={`${src}#t=0,${HOOK_SECONDS}`}
+        poster={poster}
+        preload="metadata"
+        playsInline
+        autoPlay
+        muted={muted}
+        onClick={controls ? toggle : undefined}
+        onPause={(e) => {
+          // El fragmento #t=0,5 pausa al llegar al 5: lo hacemos volver a empezar
+          if (playing && e.currentTarget.currentTime >= HOOK_SECONDS - 0.15) {
+            e.currentTarget.currentTime = 0;
+            void e.currentTarget.play().catch(() => {});
+          }
+        }}
+      />
+      {controls && (
+        <div className="hook-bar" onClick={(e) => e.stopPropagation()}>
+          <button type="button" onClick={toggle} aria-label={playing ? "Pausa" : "Reproducir"}>{playing ? "❚❚" : "▶"}</button>
+          <div className="hook-track"><div style={{ width: `${(t / HOOK_SECONDS) * 100}%` }} /></div>
+          <span className="hook-time">0:0{Math.floor(t)} / 0:0{HOOK_SECONDS}</span>
+          <button type="button" onClick={() => setMuted(!muted)} aria-label={muted ? "Activar sonido" : "Silenciar"}>{muted ? "🔇" : "🔊"}</button>
+        </div>
+      )}
+    </>
+  );
+}
+
 export function MediaView({
   media,
   compact,
@@ -37,22 +102,18 @@ export function MediaView({
       onClick={onOpen}
       title={preview ? "Ver en grande con el análisis" : undefined}
     >
-      {m.type === "video" ? (
+      {m.type === "video" && clip ? (
+        <HookVideo key={m.url} src={m.url} poster={m.thumb ?? undefined} controls={!preview} />
+      ) : m.type === "video" ? (
         <video
           key={m.url}
-          src={clip ? `${m.url}#t=0,${HOOK_SECONDS}` : m.url}
+          src={m.url}
           poster={m.thumb ?? undefined}
           controls={!preview}
           preload="metadata"
           playsInline
-          muted={clip || preview}
-          autoPlay={(clip && preview) || !!large}
-          onTimeUpdate={(e) => {
-            if (clip && e.currentTarget.currentTime >= HOOK_SECONDS) {
-              e.currentTarget.currentTime = 0;
-              void e.currentTarget.play();
-            }
-          }}
+          muted={preview}
+          autoPlay={!!large}
         />
       ) : (
         <img src={m.url} alt="" loading="lazy" />

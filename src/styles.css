@@ -271,3 +271,12 @@ ol.scenes .t { font-family: var(--gx-font-mono); color: var(--gx-blue); font-siz
 .modal .modal-grid { margin-top: 18px; }
 @media (max-width: 760px) { .modal-nav { width: 40px; height: 40px; font-size: 24px; top: auto; bottom: 16px; transform: none; } .modal-nav:hover { transform: none !important; } }
 @media (min-width: 761px) { .modal-bg { padding-left: 76px; padding-right: 76px; } }
+
+/* ---- Reproductor de hooks (solo 5 s) ---- */
+.hook-bar { position: absolute; left: 8px; right: 8px; bottom: 8px; z-index: 3; display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,.6); border-radius: 10px; padding: 6px 8px; color: #fff; }
+.hook-bar button { background: transparent; border: 0; color: #fff; padding: 2px 6px; font-size: 14px; box-shadow: none; }
+.hook-bar button:hover { transform: none !important; box-shadow: none !important; }
+.hook-track { flex: 1; height: 4px; border-radius: 4px; background: rgba(255,255,255,.3); overflow: hidden; }
+.hook-track > div { height: 100%; background: #fff; transition: width .1s linear; }
+.hook-time { font-family: var(--gx-font-mono); font-size: 11px; white-space: nowrap; }
+.media.large .clip-badge { bottom: 52px; }

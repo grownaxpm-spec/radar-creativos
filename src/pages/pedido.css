@@ -67,3 +67,9 @@
   .ped dl.script dt { padding-top: 8px; }
 }
 @media print { .ped video { display: none; } }
+.ped .hookclip { position: relative; }
+.ped .hook-bar { position: absolute; left: 6px; right: 6px; bottom: 6px; display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,.6); border-radius: 10px; padding: 5px 6px; color: #fff; }
+.ped .hook-bar button { background: transparent; border: 0; color: #fff; padding: 2px 4px; font-size: 13px; cursor: pointer; }
+.ped .hook-track { flex: 1; height: 4px; border-radius: 4px; background: rgba(255,255,255,.3); overflow: hidden; }
+.ped .hook-track > div { height: 100%; background: #fff; transition: width .1s linear; }
+.ped .hook-time { font-size: 10px; white-space: nowrap; font-variant-numeric: tabular-nums; }
