@@ -10,7 +10,7 @@ export default function SearchPage() {
   const [params] = useSearchParams();
   const [clientId, setClientId] = useState(params.get("cliente") ?? "");
   const [purpose, setPurpose] = useState("");
-  const [otherEvent, setOtherEvent] = useState("");
+  const [brief, setBrief] = useState("");
   const [rubro, setRubro] = useState("");
   const [keywords, setKeywords] = useState("");
   const [countries, setCountries] = useState<string[]>(DEFAULT_COUNTRIES);
@@ -33,8 +33,16 @@ export default function SearchPage() {
     if (kw.length) setKeywords(kw.join("\n"));
   }, [clientId, clients]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const kw = keywords.split("\n").map((s) => s.trim()).filter(Boolean);
-  const event = purpose === "otro" ? otherEvent.trim() || null : purpose || null;
+  // Palabras clave sin límite: una por línea o separadas por coma
+  const kw = [...new Set(keywords.split(/[\n,]/).map((s) => s.trim()).filter(Boolean))];
+  // Para qué es, en palabras: "Black Friday y Cyber Monday", "Hot Sale"… Vacío o "Always On" = todo el año
+  const event = /^\s*(always\s*on|aon|todo el año)?\s*$/i.test(purpose) ? null : purpose.trim();
+  const toggleEvent = (ev: string) => {
+    const parts = purpose.split(/\s*(?:,|\by\b)\s*/i).map((x) => x.trim()).filter(Boolean);
+    const has = parts.some((x) => x.toLowerCase() === ev.toLowerCase());
+    const next = has ? parts.filter((x) => x.toLowerCase() !== ev.toLowerCase()) : [...parts, ev];
+    setPurpose(next.length > 1 ? `${next.slice(0, -1).join(", ")} y ${next[next.length - 1]}` : next.join(""));
+  };
 
   async function start(e: React.FormEvent) {
     e.preventDefault();
@@ -51,6 +59,7 @@ export default function SearchPage() {
         max_per_query: Math.max(10, Math.min(100, Math.ceil((total * 1.5) / Math.max(1, (kw.length || 1) * countries.length)))),
         max_total: total,
         event,
+        brief: brief.trim() || null,
         recurring,
       })
       .select()
@@ -80,21 +89,33 @@ export default function SearchPage() {
           </select>
         </label>
         <label>
-          ¿Para qué es?
-          <select value={purpose} onChange={(e) => setPurpose(e.target.value)}>
-            <option value="">Always On (todo tipo de anuncios del rubro)</option>
-            {EVENTS.map((ev) => <option key={ev} value={ev}>{ev}</option>)}
-            <option value="otro">Otro evento…</option>
-          </select>
-          {purpose === "otro" && <input value={otherEvent} onChange={(e) => setOtherEvent(e.target.value)} placeholder="Nombre del evento" />}
-          {event && <small className="muted">Para un evento solo entran anuncios 100% de venta directa del rubro: oferta, precio, cuotas, urgencia, llamado a comprar.</small>}
+          ¿Para qué es? (escribilo como quieras)
+          <input value={purpose} onChange={(e) => setPurpose(e.target.value)} placeholder="Ej.: Black Friday y Cyber Monday · vacío = Always On" />
+          <div className="chips-row">
+            {EVENTS.map((ev) => (
+              <button type="button" key={ev} className={`chip-btn${purpose.toLowerCase().includes(ev.toLowerCase()) ? " on" : ""}`} onClick={() => toggleEvent(ev)}>
+                {ev}
+              </button>
+            ))}
+          </div>
+          {event && <small className="muted">Con un evento solo entran anuncios 100% de venta directa del rubro: oferta, precio, cuotas, urgencia, llamado a comprar.</small>}
+        </label>
+        <label>
+          Contale a la IA qué buscás (opcional)
+          <textarea
+            rows={3}
+            value={brief}
+            onChange={(e) => setBrief(e.target.value)}
+            placeholder="Ej.: anuncios con regalo por compra o 2x1, mejor si son videos de producto en mano; nada de modelos posando"
+          />
+          <small className="muted">La IA usa esto para decidir qué anuncios quedan y cuáles descarta.</small>
         </label>
         <label>
           Rubro
           <input required value={rubro} onChange={(e) => setRubro(e.target.value)} placeholder="Calzado de cuero masculino" />
         </label>
         <label>
-          Palabras clave (una por línea)
+          Palabras clave o marcas (sin límite: una por línea o separadas por coma)
           <textarea
             rows={5}
             value={keywords}

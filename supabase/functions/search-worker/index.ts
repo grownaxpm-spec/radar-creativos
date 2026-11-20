@@ -46,6 +46,7 @@ type Search = {
   max_per_query: number;
   include_inactive: boolean;
   event: string | null;
+  brief: string | null;
   max_total: number | null;
   status: string;
   apify_run_id: string | null;
@@ -65,8 +66,9 @@ async function start(s: Search) {
     return { ok: false, error: "Falta APIFY_TOKEN" };
   }
   const base = s.keywords.length ? s.keywords : [s.rubro];
-  // Para un evento (Black Friday, Cyber, Hot Sale…) se suma una búsqueda con el nombre del evento
-  const keywords = s.event ? [...base, `${s.event} ${base[0]}`] : base;
+  // Para eventos (Black Friday, Cyber, Hot Sale…) se suma una búsqueda por cada evento nombrado
+  const events = (s.event ?? "").split(/\s*(?:,|\/|\+|;|\by\b|\be\b)\s*/i).map((x) => x.trim()).filter((x) => x.length > 2);
+  const keywords = [...new Set([...base, ...events.map((ev) => `${ev} ${base[0]}`)])];
   const queries = s.countries.flatMap((country) =>
     keywords.map((q) => ({ q, country, url: libraryUrl(q, country, s.media_type, s.include_inactive ? "all" : "active") })),
   );
@@ -253,7 +255,7 @@ async function processChunk(
       image_url: ad.media.find((m) => m.type === "image")?.url ?? ad.media[0]?.thumb ?? null,
     })),
     undefined,
-    { apiKey: ANTHROPIC_KEY, model: CLAUDE_MODEL, event: s.event },
+    { apiKey: ANTHROPIC_KEY, model: CLAUDE_MODEL, event: s.event, brief: s.brief },
   );
 
   // Se queda si la IA dice que es del rubro; si la IA no lo analizó, tiene que mencionar el rubro o un competidor

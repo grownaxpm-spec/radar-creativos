@@ -77,6 +77,12 @@ async function findPedido(idOrSlug: string) {
   return data;
 }
 
+async function notCatalog(adId?: string) {
+  if (!adId) return;
+  const { data } = await db.from("ads").select("relevant").eq("id", adId).maybeSingle();
+  if (data?.relevant === false) throw new Error("Ese anuncio es de catálogo (o se marcó como no relevante): no puede ser referencia de un pedido.");
+}
+
 const now = () => new Date().toISOString();
 const clean = (o: Record<string, unknown>) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined));
 const clientFields = (a: any) =>
@@ -302,10 +308,11 @@ const TOOLS: Tool[] = [
       type: "object",
       properties: {
         cliente: str("Nombre del cliente"),
-        palabras_clave: arr("Palabras clave o marcas a buscar (opcional)"),
+        palabras_clave: arr("Palabras clave o marcas a buscar, sin límite (por defecto las del perfil del cliente). Sumá las que salgan de la charla"),
         paises: arr("Códigos de país, ej. AR, UY, CL, MX, ES (por defecto AR, ES, MX, US, CO y CL)"),
         total: num("Cantidad total de anuncios aproximada, entre todos los países (por defecto 150)"),
-        evento: str("Evento para el que se busca (Black Friday, Cyber Monday, Hot Sale, Navidad…). Vacío = Always On"),
+        evento: str("Para qué es, en las palabras del usuario. Puede ser más de un evento: 'Black Friday y Cyber Monday'. Vacío = Always On. Con evento solo entran anuncios de venta directa"),
+        que_buscas: str("Lo que el usuario quiere encontrar, contado con sus palabras (tipo de anuncio, oferta, formato, estilo, qué evitar). La IA lo usa como criterio para quedarse o descartar cada anuncio"),
         tipo_medio: { type: "string", enum: ["all", "video", "image"], description: "Video e imagen (all), solo video o solo imagen" },
         semanal: bool("Repetir cada semana"),
         confirmado: bool("true solo después de haberle preguntado al usuario todo junto (con preparar_busqueda) y que haya respondido"),
@@ -329,7 +336,8 @@ const TOOLS: Tool[] = [
           countries,
           max_total: total,
           max_per_query: Math.max(10, Math.min(100, Math.ceil((total * 1.5) / nq))),
-          event: a.evento?.trim() || null,
+          event: /^\s*(always\s*on|aon)?\s*$/i.test(a.evento ?? "") ? null : a.evento.trim(),
+          brief: a.que_buscas?.trim() || null,
           media_type: a.tipo_medio ?? "all",
           recurring: !!a.semanal,
           created_by: "claude (conector)",
@@ -362,7 +370,7 @@ const TOOLS: Tool[] = [
       "IMPORTANTE, para que se vea el archivo: con el conector de Meta Ads sacá el creative_id (ads_get_ad_entities, level=ad) y ads_get_creatives (video_id, image_hash, asset_feed_spec, object_story_spec). " +
       "Video: pasá en video_url el download_hd_url de ads_get_ad_videos (video_ids + fields=[download_hd_url]); si viene vacío (pasa seguido), pasá en vista_previa_url el preview_url de ads_get_ad_preview con ad_format=MOBILE_FEED_STANDARD y el servidor saca el mp4 solo. " +
       "Imagen: pasá en imagen_url el download_url de ads_get_ad_images (hashes + fields=[download_url]). No uses thumbnail_url ni picture (miniaturas que vencen). " +
-      "Si el creativo se llama {{product.name}} o la vista previa trae product_set, es de catálogo: pasá es_catalogo=true.",
+      "ANUNCIOS DE CATÁLOGO: si el creativo tiene product_set_id, se llama {{product.name}}, o ads_get_ad_preview devuelve product_set, es de catálogo AUNQUE tenga videos propios: pasá es_catalogo=true. No se usan como referencia ni entran en pedidos (crear_pedido los descarta solo). No hace falta bajarles el archivo.",
     inputSchema: {
       type: "object",
       properties: {
@@ -379,14 +387,14 @@ const TOOLS: Tool[] = [
         fecha_inicio: str("Fecha de inicio YYYY-MM-DD"),
         cuenta_id: str("ID de la cuenta publicitaria (sin act_), para el link al Administrador de anuncios"),
         vista_previa_url: str("preview_url de ads_get_ad_preview con ad_format=MOBILE_FEED_STANDARD: de ahí se saca el video si Meta no da download_hd_url"),
-        es_catalogo: bool("true si es un anuncio de catálogo (creativo llamado {{product.name}} o la vista previa trae product_set): se guarda como dato pero no como referencia creativa"),
+        es_catalogo: bool("true si es de catálogo: el creativo tiene product_set_id, se llama {{product.name}} o la vista previa trae product_set (aunque tenga videos). Queda guardado como dato pero nunca entra en un pedido"),
       },
       required: ["cliente", "meta_ad_id", "formato"],
     },
     run: async (a) => {
       const client = await findClient(a.cliente);
       // Solo se guarda lo que se pudo copiar: un link directo de Meta se ve roto en el navegador y vence
-      const media = await resolveMedia(String(a.meta_ad_id), a);
+      const media = a.es_catalogo ? [] : await resolveMedia(String(a.meta_ad_id), a);
       const m = a.metricas ?? {};
       const roas = Number(m.roas) || 0;
       const { data, error } = await db
@@ -490,7 +498,16 @@ const TOOLS: Tool[] = [
         a.anuncio_ids = [...g.ad_ids, ...(a.anuncio_ids ?? []).filter((x: string) => !g.ad_ids.includes(x))];
         a.hook_ids = [...new Set([...(g.hook_ids ?? []), ...(a.hook_ids ?? [])])];
       }
-      if (!a.anuncio_ids?.length && !Number(a.piezas)) throw new Error("Pasá un grupo o anuncio_ids con las referencias.");
+      // Los anuncios de catálogo (y los que se marcaron como no relevantes) nunca entran en un pedido
+      let descartados: string[] = [];
+      if (a.anuncio_ids?.length) {
+        const { data: bad } = await db.from("ads").select("id, page_name").in("id", a.anuncio_ids).eq("relevant", false);
+        const out = new Set((bad ?? []).map((x) => x.id));
+        descartados = (bad ?? []).map((x) => x.page_name ?? x.id);
+        a.anuncio_ids = a.anuncio_ids.filter((x: string) => !out.has(x));
+        a.hook_ids = (a.hook_ids ?? []).filter((x: string) => !out.has(x));
+      }
+      if (!a.anuncio_ids?.length && !Number(a.piezas)) throw new Error("Pasá un grupo o anuncio_ids con las referencias (los de catálogo no cuentan).");
       const kind = a.tipo === "evento" ? "evento" : "aon";
       const now = new Date();
       const period = a.mes ?? now.toLocaleDateString("es-AR", { month: "long", year: "numeric" });
@@ -532,6 +549,7 @@ const TOOLS: Tool[] = [
         link_cliente: `${APP_URL}/p/${p.slug}`,
         editar: `${APP_URL}/pedidos/${p.id}`,
         estado: ai ? "La IA lo está escribiendo (1-2 minutos). Consultá ver_pedido para ver el resultado." : "Creado sin IA.",
+        descartados_por_catalogo: descartados.length ? descartados : undefined,
       };
     },
   },
@@ -594,9 +612,10 @@ const TOOLS: Tool[] = [
   {
     name: "preparar_busqueda",
     description:
-      "Paso 1 para lanzar una búsqueda: devuelve las opciones y los valores por defecto del cliente (palabras clave, competidores, países, total). " +
-      "Con eso preguntale al usuario TODO JUNTO en un solo mensaje (para qué es: Always On o qué evento; países; cantidad total; video, imagen o ambos; palabras clave a sumar o sacar; si se repite cada semana). " +
-      "Cuando responda, llamá a empezar_busqueda con confirmado=true.",
+      "Paso 1 para lanzar una búsqueda: devuelve el perfil del cliente y los valores por defecto. " +
+      "Charlalo como una persona: en UN solo mensaje preguntale qué quiere encontrar y para qué (puede nombrar uno o varios eventos con sus palabras, ej. 'Black Friday y Cyber'), " +
+      "y proponé vos países, cantidad, formato y palabras clave por defecto para que solo corrija lo que quiera. No lo hagas elegir de una lista. " +
+      "Con su respuesta armá evento (sus palabras), que_buscas (lo que contó) y todas las palabras clave que surjan, sin límite, y llamá a empezar_busqueda con confirmado=true.",
     inputSchema: { type: "object", properties: { cliente: str("Nombre del cliente") }, required: ["cliente"] },
     run: async (a) => {
       const client = await findClient(a.cliente);
@@ -604,7 +623,8 @@ const TOOLS: Tool[] = [
         cliente: client.name,
         rubro: client.rubro,
         preguntas: [
-          { campo: "evento", pregunta: "¿Para qué es? Always On o un evento", opciones: ["Always On", ...EVENTS, "Otro (decime cuál)"], nota: "En eventos solo entran anuncios de venta directa" },
+          { campo: "evento", pregunta: "¿Para qué es? (con sus palabras; puede ser más de un evento o Always On)", ejemplos: EVENTS, nota: "Con evento solo entran anuncios de venta directa" },
+          { campo: "que_buscas", pregunta: "¿Qué tipo de anuncios querés encontrar? (oferta, formato, estilo, qué evitar)" },
           { campo: "paises", pregunta: "¿De qué países traemos contenido?", por_defecto: ["AR", "ES", "MX", "US", "CO", "CL"], otros: ["UY", "PY", "BO", "PE", "EC", "BR"] },
           { campo: "total", pregunta: "¿Cuántos anuncios en total (aprox.)?", por_defecto: 150 },
           { campo: "tipo_medio", pregunta: "¿Video, imagen o ambos?", por_defecto: "ambos" },
@@ -846,6 +866,7 @@ const TOOLS: Tool[] = [
       required: ["pedido", "numero"],
     },
     run: async (a) => {
+      await notCatalog(a.anuncio_id);
       const p = await findPedido(a.pedido);
       const { data: it } = await db.from("pedido_items").select("id").eq("pedido_id", p.id).eq("position", Number(a.numero)).maybeSingle();
       if (!it) throw new Error(`El pedido no tiene creativo ${a.numero}`);
@@ -867,6 +888,7 @@ const TOOLS: Tool[] = [
     description: "Agrega un creativo al final de un pedido, con o sin referencia. Para que la IA lo escriba, después usá regenerar_pedido o completalo con editar_pieza.",
     inputSchema: { type: "object", properties: { pedido: str("ID del pedido o link"), anuncio_id: str("Referencia (opcional)"), formato: str("Formato") }, required: ["pedido"] },
     run: async (a) => {
+      await notCatalog(a.anuncio_id);
       const p = await findPedido(a.pedido);
       const { count } = await db.from("pedido_items").select("id", { count: "exact", head: true }).eq("pedido_id", p.id);
       const n = (count ?? 0) + 1;

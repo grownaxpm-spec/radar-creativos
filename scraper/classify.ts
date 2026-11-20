@@ -104,7 +104,7 @@ async function imageBlock(url: string | null | undefined): Promise<Anthropic.Ima
   }
 }
 
-function system(rubro: string, client: ClientProfile | null, event?: string | null) {
+function system(rubro: string, client: ClientProfile | null, event?: string | null, brief?: string | null) {
   const profile = client
     ? `\n\nCLIENTE PARA EL QUE BUSCAMOS REFERENCIAS: ${client.name}` +
       (client.rubro ? `\nRubro: ${client.rubro}` : "") +
@@ -128,6 +128,9 @@ function system(rubro: string, client: ClientProfile | null, event?: string | nu
       ? `ESTA BÚSQUEDA ES PARA ${event.toUpperCase()}: buscamos referencias 100% de venta directa del rubro, como las que se usan en eventos de descuento. ` +
         "Sé estricto con direct_sale.\n"
       : "") +
+    (brief
+      ? `LO QUE PIDIÓ EL EQUIPO, CON SUS PALABRAS: "${brief.replace(/"/g, "'")}". Tomalo como criterio principal: relevant=false si el anuncio no sirve para eso, y subí el ai_score de los que encajan justo.\n`
+      : "") +
     "- hook: el gancho de los primeros segundos o la primera línea, escrito tal cual o descripto en pocas palabras (qué se ve/dice para frenar el scroll).\n" +
     "- hook_type y angle: elegí de las listas.\n" +
     "- why_it_works: 1-2 frases concretas (estructura, prueba, emoción, oferta). Nada genérico.\n" +
@@ -144,13 +147,13 @@ export async function classifyAds(
   client: ClientProfile | null,
   ads: AdForAI[],
   onBatch?: (done: number, total: number) => unknown,
-  opts: { apiKey?: string; model?: string; event?: string | null } = {},
+  opts: { apiKey?: string; model?: string; event?: string | null; brief?: string | null } = {},
 ): Promise<Map<string, Classification>> {
   const out = new Map<string, Classification>();
   if (!opts.apiKey || ads.length === 0) return out;
   const anthropic = new Anthropic({ apiKey: opts.apiKey });
   const model = opts.model || "claude-haiku-5-5";
-  const sys = system(rubro, client, opts.event);
+  const sys = system(rubro, client, opts.event, opts.brief);
 
   for (let i = 0; i < ads.length; i += 8) {
     await onBatch?.(i, ads.length);
