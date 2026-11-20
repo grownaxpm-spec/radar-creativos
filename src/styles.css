@@ -262,3 +262,12 @@ ol.scenes .t { font-family: var(--gx-font-mono); color: var(--gx-blue); font-siz
 .client-tabs { border-bottom: 1px solid var(--line); padding-bottom: 12px; margin-bottom: 16px; }
 .group-strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; }
 .group-item .media.compact { max-height: 220px; }
+
+/* ---- Pasar de anuncio con flechas en la vista grande ---- */
+.modal-nav { position: fixed; top: 50%; transform: translateY(-50%); z-index: 21; width: 48px; height: 48px; border-radius: 50%; border: 0; padding: 0 0 4px; background: rgba(255,255,255,.95); color: var(--gx-ink); font-size: 30px; line-height: 1; box-shadow: var(--gx-shadow); display: flex; align-items: center; justify-content: center; }
+.modal-nav:hover { transform: translateY(-50%) scale(1.06) !important; }
+.modal-nav.prev { left: 14px; } .modal-nav.next { right: 14px; }
+.modal-pos { position: absolute; top: 14px; left: 20px; font-family: var(--gx-font-mono); font-size: 11px; color: var(--muted); }
+.modal .modal-grid { margin-top: 18px; }
+@media (max-width: 760px) { .modal-nav { width: 40px; height: 40px; font-size: 24px; top: auto; bottom: 16px; transform: none; } .modal-nav:hover { transform: none !important; } }
+@media (min-width: 761px) { .modal-bg { padding-left: 76px; padding-right: 76px; } }

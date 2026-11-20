@@ -310,6 +310,17 @@ export default function Library({ fixedClientId, hooksOnly }: { fixedClientId?: 
 
       {open && (
         <AdModal
+          hookMode={hookMode}
+          {...(() => {
+            // Navegación en el mismo orden en que se ven las tarjetas
+            const flat = groups.flatMap(([, l]) => l);
+            const i = flat.findIndex((a) => a.id === open.id);
+            return {
+              position: i >= 0 ? `${i + 1} de ${flat.length}` : undefined,
+              onPrev: i > 0 ? () => setOpen(flat[i - 1]) : undefined,
+              onNext: i >= 0 && i < flat.length - 1 ? () => setOpen(flat[i + 1]) : undefined,
+            };
+          })()}
           ad={open}
           selected={sel.ids.includes(open.id)}
           hookSelected={sel.hookIds.includes(open.id)}

@@ -171,6 +171,10 @@ export function AdModal({
   onSelect,
   onSelectHook,
   onDiscard,
+  hookMode,
+  onPrev,
+  onNext,
+  position,
 }: {
   ad: Ad;
   selected: boolean;
@@ -179,18 +183,42 @@ export function AdModal({
   onSelect: () => void;
   onSelectHook: () => void;
   onDiscard: () => void;
+  /** En la vista de hooks el video se abre mostrando solo los primeros 5 s */
+  hookMode?: boolean;
+  onPrev?: () => void;
+  onNext?: () => void;
+  /** "3 de 40" */
+  position?: string;
 }) {
-  const [clip, setClip] = useState(false);
+  const [clip, setClip] = useState(!!hookMode);
+  useEffect(() => setClip(!!hookMode), [ad.id, hookMode]);
   useEffect(() => {
-    const k = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", k);
-    return () => window.removeEventListener("keydown", k);
-  }, [onClose]);
+    // Las flechas del teclado pasan al anuncio anterior o siguiente (también con el video en foco)
+    const k = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      else if ((e.key === "ArrowRight" || e.key === "ArrowLeft") && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) {
+        const go = e.key === "ArrowRight" ? onNext : onPrev;
+        if (!go) return;
+        e.preventDefault();
+        e.stopPropagation();
+        go();
+      }
+    };
+    window.addEventListener("keydown", k, true);
+    return () => window.removeEventListener("keydown", k, true);
+  }, [onClose, onPrev, onNext]);
   const isVideo = ad.media.some((m) => m.type === "video");
   return (
     <div className="modal-bg" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label={ad.page_name ?? "Anuncio"}>
+      {onPrev && (
+        <button className="modal-nav prev" onClick={(e) => { e.stopPropagation(); onPrev(); }} aria-label="Anuncio anterior" title="Anterior (←)">‹</button>
+      )}
+      {onNext && (
+        <button className="modal-nav next" onClick={(e) => { e.stopPropagation(); onNext(); }} aria-label="Anuncio siguiente" title="Siguiente (→)">›</button>
+      )}
+      <div className="modal" key={ad.id} onClick={(e) => e.stopPropagation()} role="dialog" aria-label={ad.page_name ?? "Anuncio"}>
         <button className="ghost small close" onClick={onClose}>✕</button>
+        {position && <span className="modal-pos">{position} · usá ← → para pasar</span>}
         <div className="modal-grid">
           <div>
             <MediaView media={ad.media} large clip={clip} />
