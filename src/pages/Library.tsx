@@ -4,6 +4,7 @@ import { ANGLES, HOOK_TYPES, formatLabel, supabase, type Ad, type Client, type S
 import { useSelection } from "../App.tsx";
 import AdCard, { AdModal } from "./AdCard.tsx";
 import PedidoDialog from "./PedidoDialog.tsx";
+import GroupDialog from "./GroupDialog.tsx";
 
 const PAGE = 90;
 type GroupBy = "" | "angle" | "page_name" | "hook_type" | "format";
@@ -16,7 +17,7 @@ const GROUPS: [GroupBy, string][] = [
 ];
 
 /** Biblioteca de anuncios. Con `fixedClientId` (sección del cliente) muestra solo los anuncios de ese cliente. */
-export default function Library({ fixedClientId }: { fixedClientId?: string } = {}) {
+export default function Library({ fixedClientId, hooksOnly }: { fixedClientId?: string; hooksOnly?: boolean } = {}) {
   const nav = useNavigate();
   const sel = useSelection();
   const [params, setParams] = useSearchParams();
@@ -29,10 +30,11 @@ export default function Library({ fixedClientId }: { fixedClientId?: string } = 
   const [more, setMore] = useState(false);
   const [open, setOpen] = useState<Ad | null>(null);
   const [dialog, setDialog] = useState(false);
+  const [groupDialog, setGroupDialog] = useState(false);
   const [shared, setShared] = useState<string | null>(null);
 
   // filtros (la vista y la búsqueda quedan en la URL para poder compartir el link)
-  const hookMode = params.get("vista") === "hooks";
+  const hookMode = hooksOnly || params.get("vista") === "hooks";
   const searchId = params.get("busqueda") ?? "";
   const [clientIdState, setClientId] = useState(() => {
     try {
@@ -136,7 +138,7 @@ export default function Library({ fixedClientId }: { fixedClientId?: string } = 
     [ads, discards, hideUsed, used],
   );
   const groups = useMemo(() => {
-    if (!groupBy) return [["", visible]] as [string, Ad[]][];
+    if (!groupBy || hookMode) return [["", visible]] as [string, Ad[]][];
     const m = new Map<string, Ad[]>();
     for (const a of visible) {
       const raw = (a as Record<string, any>)[groupBy] as string | null;
@@ -144,7 +146,7 @@ export default function Library({ fixedClientId }: { fixedClientId?: string } = 
       m.set(k, [...(m.get(k) ?? []), a]);
     }
     return [...m.entries()].sort((x, y) => y[1].length - x[1].length);
-  }, [visible, groupBy]);
+  }, [visible, groupBy, hookMode]);
 
   async function toggleSave(ad: Ad) {
     const next = new Set(saves);
@@ -191,8 +193,12 @@ export default function Library({ fixedClientId }: { fixedClientId?: string } = 
   return (
     <div>
       <div className="view-tabs">
-        <button className={!hookMode ? "" : "ghost"} onClick={() => setParam("vista", "")}>Anuncios</button>
-        <button className={hookMode ? "" : "ghost"} onClick={() => setParam("vista", "hooks")}>Solo hooks (5 s)</button>
+        {!fixedClientId && (
+          <>
+            <button className={!hookMode ? "" : "ghost"} onClick={() => setParam("vista", "")}>Anuncios</button>
+            <button className={hookMode ? "" : "ghost"} onClick={() => setParam("vista", "hooks")}>Solo hooks (5 s)</button>
+          </>
+        )}
         <span className="muted small">
           {hookMode
             ? "Cada video se reproduce solo en sus primeros 5 segundos. Marcá “Hook” en los mejores para sumarlos al pedido."
@@ -200,6 +206,7 @@ export default function Library({ fixedClientId }: { fixedClientId?: string } = 
         </span>
       </div>
 
+      {!hookMode && (
       <div className="filters">
         {!fixedClientId && (
           <select value={clientId} onChange={(e) => setClientId(e.target.value)} title="Cliente activo: define favoritos y descartados">
@@ -254,7 +261,8 @@ export default function Library({ fixedClientId }: { fixedClientId?: string } = 
         )}
         <input placeholder="Buscar marca, texto o hook…" value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
-      {countriesSeen.length > 1 && <p className="muted small">Países: {countriesSeen.join(", ")}</p>}
+      )}
+      {!hookMode && countriesSeen.length > 1 && <p className="muted small">Países: {countriesSeen.join(", ")}</p>}
 
       {!loading && visible.length === 0 && (
         <div className="empty-state">
@@ -318,6 +326,7 @@ export default function Library({ fixedClientId }: { fixedClientId?: string } = 
             <b>{sel.ids.length}</b> referencias · <b>{sel.hookIds.length}</b> hooks{clientName ? ` para ${clientName}` : ""}
           </span>
           <button className="ghost small" onClick={() => { sel.clear(); setShared(null); }}>Limpiar</button>
+          <button className="ghost" onClick={() => setGroupDialog(true)}>Guardar como grupo</button>
           <button className="ghost" onClick={shareRefs} disabled={sel.ids.length === 0}>Compartir referencias</button>
           <button onClick={() => setDialog(true)} disabled={sel.ids.length === 0}>Crear pedido de creativos →</button>
           {shared && (
@@ -326,6 +335,21 @@ export default function Library({ fixedClientId }: { fixedClientId?: string } = 
             </div>
           )}
         </div>
+      )}
+
+      {groupDialog && (
+        <GroupDialog
+          clientId={clientId || null}
+          adIds={sel.ids}
+          hookIds={sel.hookIds}
+          onClose={() => setGroupDialog(false)}
+          onSaved={(name) => {
+            setGroupDialog(false);
+            setShared(null);
+            sel.clear();
+            alert(`Listo: quedó guardado el grupo “${name}”. Lo ves en la pestaña Grupos del cliente y se lo podés pedir a Claude por su nombre.`);
+          }}
+        />
       )}
 
       {dialog && <PedidoDialog clients={clients} clientId={clientId} adIds={sel.ids} hookIds={sel.hookIds} onClose={() => setDialog(false)} />}

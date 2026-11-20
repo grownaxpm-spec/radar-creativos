@@ -111,6 +111,16 @@ export type Search = {
   max_total: number | null;
 };
 
+export type AdGroup = {
+  id: string;
+  client_id: string | null;
+  name: string;
+  ad_ids: string[];
+  hook_ids: string[];
+  created_at: string;
+  updated_at: string;
+};
+
 export type Pedido = {
   id: string;
   slug: string;

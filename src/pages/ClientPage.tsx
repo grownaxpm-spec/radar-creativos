@@ -6,10 +6,13 @@ import Library from "./Library.tsx";
 import SearchList from "./SearchList.tsx";
 import Pedidos from "./Pedidos.tsx";
 import { ClientForm } from "./Clients.tsx";
+import Groups from "./Groups.tsx";
 
-type Tab = "biblioteca" | "busquedas" | "pedidos" | "perfil";
+type Tab = "biblioteca" | "hooks" | "grupos" | "busquedas" | "pedidos" | "perfil";
 const TABS: [Tab, string][] = [
   ["biblioteca", "Biblioteca"],
+  ["hooks", "Hooks (5 s)"],
+  ["grupos", "Grupos"],
   ["busquedas", "Búsquedas"],
   ["pedidos", "Pedidos"],
   ["perfil", "Perfil del cliente"],
@@ -41,6 +44,7 @@ export default function ClientPage() {
     const p = new URLSearchParams(params);
     p.set("tab", t);
     if (t !== "biblioteca") p.delete("busqueda");
+    p.delete("vista");
     setParams(p, { replace: true });
   };
 
@@ -71,7 +75,9 @@ export default function ClientPage() {
           <button key={t} className={tab === t ? "" : "ghost"} onClick={() => setTab(t)}>{label}</button>
         ))}
       </div>
-      {tab === "biblioteca" && <Library key={client.id} fixedClientId={client.id} />}
+      {tab === "biblioteca" && <Library key={`${client.id}-lib`} fixedClientId={client.id} />}
+      {tab === "hooks" && <Library key={`${client.id}-hooks`} fixedClientId={client.id} hooksOnly />}
+      {tab === "grupos" && <Groups client={client} />}
       {tab === "busquedas" && (
         <div className="card">
           <SearchList clientId={client.id} />

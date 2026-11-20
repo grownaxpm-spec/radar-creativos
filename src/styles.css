@@ -260,3 +260,5 @@ ol.scenes .t { font-family: var(--gx-font-mono); color: var(--gx-blue); font-siz
 .client-head h1 { margin: 0; font-size: 1.6rem; }
 .client-head p { margin: 2px 0 0; }
 .client-tabs { border-bottom: 1px solid var(--line); padding-bottom: 12px; margin-bottom: 16px; }
+.group-strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; }
+.group-item .media.compact { max-height: 220px; }

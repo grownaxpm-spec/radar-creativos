@@ -61,6 +61,14 @@ const adSummary = (a: any) => ({
     : undefined,
 });
 
+async function findGroup(name: string, clientId?: string) {
+  let q = db.from("ad_groups").select("*").ilike("name", `%${name}%`).order("updated_at", { ascending: false }).limit(1);
+  if (clientId) q = q.eq("client_id", clientId);
+  const { data } = await q.maybeSingle();
+  if (!data) throw new Error(`No encontré el grupo "${name}". Usá listar_grupos para ver los nombres.`);
+  return data as { id: string; name: string; client_id: string | null; ad_ids: string[]; hook_ids: string[] };
+}
+
 async function copyMedia(url: string, key: string): Promise<string> {
   try {
     const res = await fetch(url);
@@ -178,9 +186,39 @@ const TOOLS: Tool[] = [
     },
   },
   {
+    name: "listar_grupos",
+    description:
+      "Lista los grupos de anuncios que el equipo armó a mano en la biblioteca (referencias elegidas por una persona, con nombre). Usalo cuando te pidan un pedido 'con el grupo …'.",
+    inputSchema: { type: "object", properties: { cliente: str("Filtrar por cliente") } },
+    run: async (a) => {
+      const client = await findClient(a.cliente);
+      let q = db.from("ad_groups").select("id, name, client_id, ad_ids, hook_ids, updated_at, clients(name)").order("updated_at", { ascending: false });
+      if (client) q = q.eq("client_id", client.id);
+      const { data } = await q.limit(50);
+      return (data ?? []).map((g: any) => ({ id: g.id, nombre: g.name, cliente: g.clients?.name ?? null, referencias: g.ad_ids.length, hooks: g.hook_ids.length, actualizado: g.updated_at }));
+    },
+  },
+  {
+    name: "ver_grupo",
+    description: "Muestra los anuncios de un grupo (referencias y hooks) con su análisis, para revisarlos antes de armar el pedido.",
+    inputSchema: { type: "object", properties: { grupo: str("Nombre del grupo (alcanza con una parte)"), cliente: str("Cliente (opcional)") }, required: ["grupo"] },
+    run: async (a) => {
+      const client = await findClient(a.cliente);
+      const g = await findGroup(a.grupo, client?.id);
+      const ids = [...g.ad_ids, ...g.hook_ids];
+      const { data } = ids.length ? await db.from("ads_view").select("*").in("id", ids) : { data: [] };
+      const byId = new Map((data ?? []).map((x: any) => [x.id, x]));
+      return {
+        grupo: g.name,
+        referencias: g.ad_ids.map((id) => byId.get(id)).filter(Boolean).map(adSummary),
+        hooks: g.hook_ids.map((id) => byId.get(id)).filter(Boolean).map(adSummary),
+      };
+    },
+  },
+  {
     name: "empezar_busqueda",
     description:
-      "Empieza una búsqueda nueva de anuncios de la competencia en la Biblioteca de Meta para un cliente. Usa sus palabras clave y competidores si no se pasan otras. No fuerza un número por país: trae un total repartido libremente. Si es para un evento (Black Friday, Cyber Monday, Hot Sale…) solo guarda anuncios de venta directa. Descarta marketplaces y anuncios de catálogo. Tarda unos minutos; consultá el avance con estado_busquedas.",
+      "Empieza una búsqueda nueva de anuncios de la competencia en la Biblioteca de Meta para un cliente. Usa sus palabras clave y competidores si no se pasan otras. No fuerza un número por país: trae un total repartido libremente. Si es para un evento (Black Friday, Cyber Monday, Hot Sale…) solo guarda anuncios de venta directa. Descarta marketplaces, anuncios de catálogo y anuncios que ya trajo otra búsqueda. Tarda unos minutos; consultá el avance con estado_busquedas.",
     inputSchema: {
       type: "object",
       properties: {
@@ -227,7 +265,7 @@ const TOOLS: Tool[] = [
     run: async (a) => {
       const { data } = await db
         .from("searches")
-        .select("id, status, progress, progress_pct, total_found, error, countries, created_at, clients(name)")
+        .select("id, status, progress, progress_pct, total_found, error, countries, event, created_at, clients(name)")
         .order("created_at", { ascending: false })
         .limit(Math.min(Number(a.limite) || 5, 20));
       return data;
@@ -294,12 +332,13 @@ const TOOLS: Tool[] = [
   {
     name: "crear_pedido",
     description:
-      "Crea un pedido de creativos con las referencias elegidas (ids de buscar_en_biblioteca o agregar_anuncio_propio). La IA escribe guiones, cómo grabar, hooks sugeridos y cómo se entrega según el nivel de detalle. Devuelve el link para el cliente (página con los videos reproducibles) y el link para editarlo.",
+      "Crea un pedido de creativos con las referencias elegidas: un grupo armado por el equipo (grupo) o ids de buscar_en_biblioteca / agregar_anuncio_propio. La IA escribe guiones, cómo grabar y aclaraciones según el nivel de detalle. Los hook_ids se muestran como videos de 5 s en la sección Hooks sugeridos. Devuelve el link para el cliente y el link para editarlo.",
     inputSchema: {
       type: "object",
       properties: {
         cliente: str("Nombre del cliente"),
-        anuncio_ids: arr("IDs de los anuncios de referencia, en el orden de las piezas"),
+        grupo: str("Nombre de un grupo de anuncios armado por el equipo: usa sus referencias y sus hooks"),
+        anuncio_ids: arr("IDs de los anuncios de referencia, en el orden de las piezas (si no se usa grupo)"),
         hook_ids: arr("IDs de videos cuyo hook (primeros 5 s) va en la sección Hooks sugeridos del link"),
         entrega_drive: str("Link de Drive donde entregar los creativos (por defecto, la carpeta de creativos del cliente)"),
         adaptaciones: str("Adaptaciones que se piden, ej. 'Vertical 9:16 y feed 4:5' (por defecto según la plataforma)"),
@@ -315,10 +354,16 @@ const TOOLS: Tool[] = [
         entrega: str("Fecha de entrega YYYY-MM-DD"),
         generar_con_ia: bool("Que la IA escriba el pedido (por defecto sí)"),
       },
-      required: ["cliente", "anuncio_ids"],
+      required: ["cliente"],
     },
     run: async (a) => {
       const client = await findClient(a.cliente);
+      if (a.grupo) {
+        const g = await findGroup(a.grupo, client.id);
+        a.anuncio_ids = [...g.ad_ids, ...(a.anuncio_ids ?? []).filter((x: string) => !g.ad_ids.includes(x))];
+        a.hook_ids = [...new Set([...(g.hook_ids ?? []), ...(a.hook_ids ?? [])])];
+      }
+      if (!a.anuncio_ids?.length && !Number(a.piezas)) throw new Error("Pasá un grupo o anuncio_ids con las referencias.");
       const kind = a.tipo === "evento" ? "evento" : "aon";
       const now = new Date();
       const period = a.mes ?? now.toLocaleDateString("es-AR", { month: "long", year: "numeric" });
@@ -423,7 +468,9 @@ const TOOLS: Tool[] = [
 const SERVER_INFO = { name: "pedido-de-creativos", title: "Pedido de Creativos (Grownax)", version: "1.0.0" };
 const INSTRUCTIONS =
   "Herramienta de la agencia para encontrar referencias de anuncios de la competencia y armar pedidos de creativos. " +
-  "Flujo típico: listar_clientes → buscar_en_biblioteca (o empezar_busqueda si faltan referencias) → crear_pedido con los ids elegidos → ver_pedido. " +
+  "Si el usuario nombra un grupo, usá listar_grupos / ver_grupo y crear_pedido con grupo: esas referencias las eligió una persona, no las cambies. " +
+  "Flujo típico: listar_clientes → buscar_en_biblioteca (o empezar_busqueda si faltan referencias) → crear_pedido con los ids elegidos como referencia y los mejores hooks en hook_ids → ver_pedido. " +
+  "Para eventos (Black Friday, Cyber, Hot Sale) usá solo_venta_directa y buscá con evento. Para no repetir referencias, usá ocultar_usados. " +
   "Para pedidos basados en los anuncios ganadores del cliente: traé sus mejores anuncios con el conector de Meta Ads, sumalos con agregar_anuncio_propio y usalos en crear_pedido. " +
   "Siempre devolvé al usuario el link_cliente del pedido.";
 
