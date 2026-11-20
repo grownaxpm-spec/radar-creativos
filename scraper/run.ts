@@ -81,7 +81,7 @@ async function processSearch(s: Search) {
     const src = r.__sourceUrl ? byUrl.get(r.__sourceUrl) : undefined;
     const country = src?.country ?? (s.countries.length === 1 ? s.countries[0] : undefined);
     const ad = normalizeAd(r, country);
-    if (!ad || ad.media.length === 0) continue;
+    if (!ad || ad.media.length === 0 || ad.is_catalog) continue;
     if (s.media_type === "video" && ad.format !== "video") continue;
     if (s.media_type === "image" && ad.format === "video") continue;
     const prev = found.get(ad.ad_archive_id);
@@ -148,8 +148,9 @@ async function processSearch(s: Search) {
       Array.isArray(existing?.media) && existing.media.length > 0 && existing.media.every((m: { url: string }) => !/fbcdn|facebook\.com/.test(m.url));
     const media = alreadyStored ? existing!.media : storeMedia ? await storeMedia(ad.ad_archive_id, ad.media) : ad.media;
 
+    const { is_catalog: _catalog, ...fields } = ad;
     const row = {
-      ...ad,
+      ...fields,
       media,
       countries: [...new Set([...(existing?.countries ?? []), ...ad.countries])],
       last_seen: new Date().toISOString(),

@@ -9,7 +9,7 @@
 // Secretos que usa (Supabase → Edge Functions → Secrets): APIFY_TOKEN, ANTHROPIC_API_KEY (opcional),
 // APIFY_ACTOR y CLAUDE_MODEL (opcionales). SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY los pone Supabase solo.
 import { createClient } from "@supabase/supabase-js";
-import { daysActive, isBlockedAdvertiser, libraryUrl, matchesRubro, normalizeAd, rubroRoots, winnerScore, type MediaItem, type NormalizedAd } from "./normalize.ts";
+import { daysActive, isBlockedAdvertiser, libraryUrl, matchesRubro, normalizeAd, perQueryLimit, rubroRoots, winnerScore, type MediaItem, type NormalizedAd } from "./normalize.ts";
 import { getItems, getRun, sourceUrlOf, startRun } from "./apify.ts";
 import { classifyAds, type ClientProfile } from "./classify.ts";
 import { draftPedido } from "./pedido.ts";
@@ -45,6 +45,8 @@ type Search = {
   media_type: string;
   max_per_query: number;
   include_inactive: boolean;
+  event: string | null;
+  max_total: number | null;
   status: string;
   apify_run_id: string | null;
   apify_dataset_id: string | null;
@@ -62,14 +64,18 @@ async function start(s: Search) {
     await setSearch(s.id, { status: "error", error: "Falta el secreto APIFY_TOKEN en Supabase (Edge Functions → Secrets).", progress: null });
     return { ok: false, error: "Falta APIFY_TOKEN" };
   }
-  const keywords = s.keywords.length ? s.keywords : [s.rubro];
+  const base = s.keywords.length ? s.keywords : [s.rubro];
+  // Para un evento (Black Friday, Cyber, Hot Sale…) se suma una búsqueda con el nombre del evento
+  const keywords = s.event ? [...base, `${s.event} ${base[0]}`] : base;
   const queries = s.countries.flatMap((country) =>
     keywords.map((q) => ({ q, country, url: libraryUrl(q, country, s.media_type, s.include_inactive ? "all" : "active") })),
   );
   try {
+    // Con un total, no se fuerza un número por país: se pide un poco de más y queda lo que traiga cada uno
+    const perQuery = s.max_total ? perQueryLimit(s.max_total, queries.length) : s.max_per_query;
     const { runId, datasetId } = await startRun(
       queries.map((x) => x.url),
-      s.max_per_query,
+      perQuery,
       { token: APIFY_TOKEN, actor: ACTOR, webhookUrl: `${SELF_URL}?action=tick&search_id=${s.id}` },
     );
     await setSearch(s.id, {
@@ -200,6 +206,8 @@ async function processChunk(
     const country = src?.country ?? (s.countries.length === 1 ? s.countries[0] : undefined);
     const ad = normalizeAd(it, country);
     if (!ad || ad.media.length === 0) continue;
+    // Anuncios de catálogo (productos dinámicos): no sirven de referencia
+    if (ad.is_catalog) continue;
     if (s.media_type === "video" && ad.format !== "video") continue;
     if (s.media_type === "image" && ad.format === "video") continue;
     if (ads.some((x) => x.ad.ad_archive_id === ad.ad_archive_id)) continue;
@@ -224,7 +232,7 @@ async function processChunk(
       image_url: ad.media.find((m) => m.type === "image")?.url ?? ad.media[0]?.thumb ?? null,
     })),
     undefined,
-    { apiKey: ANTHROPIC_KEY, model: CLAUDE_MODEL },
+    { apiKey: ANTHROPIC_KEY, model: CLAUDE_MODEL, event: s.event },
   );
 
   // Se queda si la IA dice que es del rubro; si la IA no lo analizó, tiene que mencionar el rubro o un competidor
@@ -233,7 +241,9 @@ async function processChunk(
     const r = tags.get(ad.ad_archive_id)?.relevant;
     return r === true || (r === undefined && matchesRubro(ad, roots, s.keywords));
   };
-  const keep = ads.filter(({ ad }) => isRelevant(ad));
+  // En búsquedas para un evento solo entran los anuncios de venta directa (los demás no se marcan como basura)
+  const isSale = (ad: NormalizedAd) => !s.event || tags.get(ad.ad_archive_id)?.direct_sale !== false;
+  const keep = ads.filter(({ ad }) => isRelevant(ad) && isSale(ad));
   const drop = ads.filter(({ ad }) => !isRelevant(ad)).map(({ ad }) => ad.ad_archive_id);
   if (drop.length) await db.from("ads").update({ relevant: false }).eq("platform", "meta").in("ad_archive_id", drop);
   let saved = 0;
@@ -256,8 +266,9 @@ async function saveAd(searchId: string, ad: NormalizedAd, query: string, t: any)
   const alreadyStored =
     Array.isArray(existing?.media) && existing.media.length > 0 && existing.media.every((m: MediaItem) => !/fbcdn|facebook\.com/.test(m.url));
   const media = alreadyStored ? existing!.media : await storeMedia(ad.ad_archive_id, ad.media);
+  const { is_catalog: _catalog, ...fields } = ad;
   const row = {
-    ...ad,
+    ...fields,
     media,
     countries: [...new Set([...(existing?.countries ?? []), ...ad.countries])],
     last_seen: new Date().toISOString(),
@@ -265,6 +276,7 @@ async function saveAd(searchId: string, ad: NormalizedAd, query: string, t: any)
     ...(t
       ? {
           relevant: t.relevant,
+          direct_sale: t.direct_sale,
           angle: t.angle,
           hook: t.hook,
           hook_type: t.hook_type,
@@ -348,6 +360,7 @@ async function reanalyze(clientId: string | null): Promise<{ analyzed: number; r
       .from("ads")
       .update({
         relevant: t.relevant,
+        direct_sale: t.direct_sale,
         angle: t.angle,
         hook: t.hook,
         hook_type: t.hook_type,

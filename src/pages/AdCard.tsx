@@ -4,26 +4,49 @@ import { formatLabel, supabase, type Ad, type Media, type VideoAnalysis } from "
 export const HOOK_SECONDS = 5;
 
 /**
- * Muestra el video o la imagen. Con `clip`, el video se reproduce solo los primeros 5 segundos (el hook)
- * y vuelve a empezar: se corta en el navegador, el archivo original queda entero.
+ * Muestra el video o la imagen, con flechas para pasar las fotos de los carruseles.
+ * Con `clip`, el video se reproduce solo los primeros 5 segundos (el hook) y vuelve a empezar:
+ * se corta en el navegador, el archivo original queda entero.
+ * Con `onOpen` (en las tarjetas) el video no tiene controles: un clic lo abre en grande con el análisis.
  */
-export function MediaView({ media, compact, clip, large }: { media: Media[]; compact?: boolean; clip?: boolean; large?: boolean }) {
+export function MediaView({
+  media,
+  compact,
+  clip,
+  large,
+  onOpen,
+}: {
+  media: Media[];
+  compact?: boolean;
+  clip?: boolean;
+  large?: boolean;
+  onOpen?: () => void;
+}) {
   const [i, setI] = useState(0);
-  const ref = useRef<HTMLVideoElement>(null);
-  const m = media[i];
   useEffect(() => setI(0), [media]);
+  const m = media[i];
   if (!m) return <div className="media empty">Sin medio</div>;
+  const preview = !!onOpen;
+  const go = (d: number) => (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setI((i + d + media.length) % media.length);
+  };
   return (
-    <div className={`media ${compact ? "compact" : ""} ${large ? "large" : ""}`}>
+    <div
+      className={`media ${compact ? "compact" : ""} ${large ? "large" : ""} ${preview ? "clickable" : ""}`}
+      onClick={onOpen}
+      title={preview ? "Ver en grande con el análisis" : undefined}
+    >
       {m.type === "video" ? (
         <video
-          ref={ref}
+          key={m.url}
           src={clip ? `${m.url}#t=0,${HOOK_SECONDS}` : m.url}
           poster={m.thumb ?? undefined}
-          controls
-          preload={clip ? "metadata" : "none"}
+          controls={!preview}
+          preload="metadata"
           playsInline
-          muted={clip}
+          muted={clip || preview}
+          autoPlay={clip && preview}
           onTimeUpdate={(e) => {
             if (clip && e.currentTarget.currentTime >= HOOK_SECONDS) {
               e.currentTarget.currentTime = 0;
@@ -34,13 +57,14 @@ export function MediaView({ media, compact, clip, large }: { media: Media[]; com
       ) : (
         <img src={m.url} alt="" loading="lazy" />
       )}
+      {preview && m.type === "video" && !clip && <span className="play-badge" aria-hidden>▶</span>}
       {clip && m.type === "video" && <span className="clip-badge">Hook · {HOOK_SECONDS} s</span>}
       {media.length > 1 && (
-        <div className="dots">
-          {media.map((_, k) => (
-            <button key={k} className={k === i ? "on" : ""} onClick={() => setI(k)} aria-label={`Medio ${k + 1}`} />
-          ))}
-        </div>
+        <>
+          <button type="button" className="car-nav prev" onClick={go(-1)} aria-label="Anterior">‹</button>
+          <button type="button" className="car-nav next" onClick={go(1)} aria-label="Siguiente">›</button>
+          <span className="car-count">{i + 1}/{media.length}</span>
+        </>
       )}
     </div>
   );
@@ -49,32 +73,46 @@ export function MediaView({ media, compact, clip, large }: { media: Media[]; com
 export default function AdCard({
   ad,
   selected,
+  hookSelected,
   saved,
+  used,
   hookMode,
   onSelect,
+  onSelectHook,
   onSave,
   onDiscard,
   onOpen,
 }: {
   ad: Ad;
   selected: boolean;
+  hookSelected: boolean;
   saved: boolean;
+  used?: boolean;
   hookMode?: boolean;
   onSelect: () => void;
+  onSelectHook: () => void;
   onSave: () => void;
   onDiscard: () => void;
   onOpen: () => void;
 }) {
+  const isVideo = ad.media.some((m) => m.type === "video");
   return (
-    <article className={`ad ${selected ? "selected" : ""}`}>
+    <article className={`ad ${selected ? "selected" : ""} ${hookSelected ? "hook-selected" : ""}`}>
       <div className="ad-top">
-        <label className="pick" title="Elegir para el pedido o para compartir">
-          <input type="checkbox" checked={selected} onChange={onSelect} />
-        </label>
+        <div className="picks">
+          <label className="pick" title="Usarlo como referencia de una pieza del pedido">
+            <input type="checkbox" checked={selected} onChange={onSelect} /> Ref
+          </label>
+          {isVideo && (
+            <label className="pick" title="Sumar su hook (primeros 5 s) a los hooks sugeridos del pedido">
+              <input type="checkbox" checked={hookSelected} onChange={onSelectHook} /> Hook
+            </label>
+          )}
+        </div>
         <button className="discard" title="Descartar: no sirve para este cliente" onClick={onDiscard}>
           ✕ Descartar
         </button>
-        <MediaView media={ad.media} clip={hookMode} />
+        <MediaView media={ad.media} clip={hookMode} onOpen={onOpen} />
       </div>
       <div className="ad-body" onClick={onOpen} role="button" tabIndex={0} onKeyDown={(e) => e.key === "Enter" && onOpen()}>
         <div className="row between">
@@ -94,21 +132,27 @@ export default function AdCard({
           </span>
         </div>
         <div className="chips">
+          {used && <span className="chip used">Ya usado en un pedido</span>}
           {!hookMode && <span className="chip">{formatLabel(ad.format)}</span>}
+          {ad.direct_sale && <span className="chip sale">Venta directa</span>}
           {ad.hook_type && <span className="chip hook">{ad.hook_type}</span>}
           {ad.angle && <span className="chip angle">{ad.angle}</span>}
-          {ad.video_status === "done" && <span className="chip video">Video analizado</span>}
+          {ad.is_active === false && <span className="chip light" title="La marca lo apagó, pero queda guardado en la biblioteca">Inactivo</span>}
           {(ad.variations ?? 1) > 1 && <span className="chip light" title="Variaciones del mismo creativo: si lo duplican, lo están escalando">×{ad.variations}</span>}
         </div>
         {ad.hook && <p className="hook"><b>Hook:</b> “{ad.hook}”</p>}
         {!hookMode && ad.body && <p className="copy">{ad.body}</p>}
-        <span className="more-link">Ver análisis completo →</span>
       </div>
-      <div className="row actions">
-        <button className={selected ? "" : "ghost"} onClick={onSelect}>
-          {selected ? "✓ Elegido" : "Elegir"}
+      <div className="row actions wrap">
+        <button className={selected ? "small" : "ghost small"} onClick={onSelect}>
+          {selected ? "✓ Referencia" : "Referencia"}
         </button>
-        <button className={`ghost icon ${saved ? "on" : ""}`} onClick={onSave} title="Guardar en favoritos / biblioteca del cliente">
+        {isVideo && (
+          <button className={hookSelected ? "small" : "ghost small"} onClick={onSelectHook}>
+            {hookSelected ? "✓ Hook" : "Hook"}
+          </button>
+        )}
+        <button className={`ghost icon small ${saved ? "on" : ""}`} onClick={onSave} title="Guardar en favoritos / biblioteca del cliente">
           {saved ? "★" : "☆"}
         </button>
         <a className="ghost-link" href={ad.snapshot_url} target="_blank" rel="noreferrer">
@@ -122,14 +166,18 @@ export default function AdCard({
 export function AdModal({
   ad,
   selected,
+  hookSelected,
   onClose,
   onSelect,
+  onSelectHook,
   onDiscard,
 }: {
   ad: Ad;
   selected: boolean;
+  hookSelected: boolean;
   onClose: () => void;
   onSelect: () => void;
+  onSelectHook: () => void;
   onDiscard: () => void;
 }) {
   const [clip, setClip] = useState(false);
@@ -178,7 +226,10 @@ export function AdModal({
               {ad.publisher_platforms.length ? ` · ${ad.publisher_platforms.join(", ")}` : ""}
             </p>
             <div className="row wrap">
-              <button className={selected ? "" : "ghost"} onClick={onSelect}>{selected ? "✓ Elegido" : "Elegir para el pedido"}</button>
+              <button className={selected ? "" : "ghost"} onClick={onSelect}>{selected ? "✓ Referencia del pedido" : "Usar como referencia"}</button>
+              {isVideo && (
+                <button className={hookSelected ? "" : "ghost"} onClick={onSelectHook}>{hookSelected ? "✓ Hook sugerido" : "Sumar a hooks sugeridos"}</button>
+              )}
               <button className="ghost danger" onClick={onDiscard}>Descartar</button>
               <a className="ghost-link" href={ad.snapshot_url} target="_blank" rel="noreferrer">Ver en la Biblioteca de Meta ↗</a>
             </div>

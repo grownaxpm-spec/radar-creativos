@@ -94,3 +94,16 @@ test("descarta marketplaces", () => {
   assert.ok(!isBlockedAdvertiser({ page_name: "Giorgio Beneti", link_url: "https://giorgiobeneti.com.ar" }));
   assert.ok(!isBlockedAdvertiser({ page_name: "Sangagboots", link_url: "https://sangagboots.com" }));
 });
+
+import { perQueryLimit } from "./normalize.ts";
+test("detecta anuncios de catálogo y reparte el total entre consultas", () => {
+  const dpa = normalizeAd({ adArchiveID: "1", snapshot: { displayFormat: "DPA", images: [{ originalImageUrl: "https://x/a.jpg" }] } });
+  assert.equal(dpa?.is_catalog, true);
+  const tpl = normalizeAd({ adArchiveID: "2", snapshot: { body: { text: "{{product.name}}" }, images: [{ originalImageUrl: "https://x/a.jpg" }] } });
+  assert.equal(tpl?.is_catalog, true);
+  const normal = normalizeAd({ adArchiveID: "3", snapshot: { displayFormat: "VIDEO", body: { text: "Zapatos de cuero" } } });
+  assert.equal(normal?.is_catalog, false);
+  assert.equal(perQueryLimit(100, 30), 10);
+  assert.equal(perQueryLimit(100, 5), 30);
+  assert.equal(perQueryLimit(1000, 2), 100);
+});

@@ -45,6 +45,15 @@
 .ped .fmt { margin-top: 16px !important; padding-top: 10px; border-top: 1px dashed var(--border); font-size: .9rem; }
 .ped .fmt b { color: var(--ink); }
 
+.ped .refmedia { position: relative; }
+.ped .car-nav { position: absolute; top: 50%; transform: translateY(-50%); width: 34px; height: 34px; border-radius: 50%; border: 0; background: rgba(255,255,255,.92); color: var(--ink); font-size: 22px; line-height: 1; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,.25); display: flex; align-items: center; justify-content: center; padding: 0 0 3px; }
+.ped .car-nav.prev { left: 8px; } .ped .car-nav.next { right: 8px; }
+.ped .car-count { position: absolute; top: 8px; right: 8px; background: rgba(0,0,0,.65); color: #fff; font-size: .72rem; padding: 2px 8px; border-radius: 999px; }
+.ped .hooks-sec { padding-top: 32px; }
+.ped .hook-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 16px; margin-top: 14px; }
+.ped .hook-grid figure { margin: 0; }
+.ped .hook-grid video, .ped .hook-grid img { width: 100%; aspect-ratio: 9 / 16; object-fit: cover; border-radius: 12px; border: 1px solid var(--border); background: #000; display: block; }
+.ped .hook-grid figcaption { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; font-size: .85rem; color: var(--ink); }
 .ped .notes { padding-top: 32px; }
 .ped .notes ul { margin: 0; padding-left: 18px; }
 .ped .notes li { margin: 6px 0; }

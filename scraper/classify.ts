@@ -39,6 +39,7 @@ const Result = z.object({
     z.object({
       id: z.string(),
       relevant: z.boolean(),
+      direct_sale: z.boolean(),
       angle: z.enum(ANGLES),
       hook: z.string(),
       hook_type: z.enum(HOOK_TYPES),
@@ -103,7 +104,7 @@ async function imageBlock(url: string | null | undefined): Promise<Anthropic.Ima
   }
 }
 
-function system(rubro: string, client: ClientProfile | null) {
+function system(rubro: string, client: ClientProfile | null, event?: string | null) {
   const profile = client
     ? `\n\nCLIENTE PARA EL QUE BUSCAMOS REFERENCIAS: ${client.name}` +
       (client.rubro ? `\nRubro: ${client.rubro}` : "") +
@@ -121,6 +122,12 @@ function system(rubro: string, client: ClientProfile | null) {
     `- relevant: false si no es del rubro "${rubro}" (apps, series, otros productos, etc.). ` +
     "También false si el anunciante es un marketplace o tienda generalista (Shein, Temu, AliExpress, Amazon, Mercado Libre, Dafiti, Falabella, etc.) " +
     "o una tienda multimarca o de dropshipping genérico (tiendas tipo shop sin marca propia, productos importados genéricos, venta por WhatsApp de otras marcas): solo sirven marcas reales del rubro con producto propio.\n" +
+    "- direct_sale: true si es un anuncio de venta directa: muestra producto con oferta, descuento, precio, cuotas, envío gratis, urgencia o un llamado claro a comprar. " +
+    "false si es de marca, institucional, inspiracional o contenido sin intención de venta inmediata.\n" +
+    (event
+      ? `ESTA BÚSQUEDA ES PARA ${event.toUpperCase()}: buscamos referencias 100% de venta directa del rubro, como las que se usan en eventos de descuento. ` +
+        "Sé estricto con direct_sale.\n"
+      : "") +
     "- hook: el gancho de los primeros segundos o la primera línea, escrito tal cual o descripto en pocas palabras (qué se ve/dice para frenar el scroll).\n" +
     "- hook_type y angle: elegí de las listas.\n" +
     "- why_it_works: 1-2 frases concretas (estructura, prueba, emoción, oferta). Nada genérico.\n" +
@@ -137,13 +144,13 @@ export async function classifyAds(
   client: ClientProfile | null,
   ads: AdForAI[],
   onBatch?: (done: number, total: number) => unknown,
-  opts: { apiKey?: string; model?: string } = {},
+  opts: { apiKey?: string; model?: string; event?: string | null } = {},
 ): Promise<Map<string, Classification>> {
   const out = new Map<string, Classification>();
   if (!opts.apiKey || ads.length === 0) return out;
   const anthropic = new Anthropic({ apiKey: opts.apiKey });
   const model = opts.model || "claude-haiku-5-5";
-  const sys = system(rubro, client);
+  const sys = system(rubro, client, opts.event);
 
   for (let i = 0; i < ads.length; i += 8) {
     await onBatch?.(i, ads.length);

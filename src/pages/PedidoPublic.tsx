@@ -18,7 +18,10 @@ type PublicPedido = {
   kind: string; event_name: string | null; event_date: string | null; period: string | null; platform: string; detail_level: string;
   deadline: string | null; delivery_url: string | null; formats: string | null; intro: string | null; refs_note: string | null;
   before_notes: string[] | null; items: Item[];
+  hook_ads: { page_name: string | null; media: Media[]; hook: string | null; hook_type: string | null }[] | null;
 };
+
+const HOOK_SECONDS = 5;
 
 const fmtDate = (d: string) =>
   new Date(`${d}T12:00:00`).toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" });
@@ -30,13 +33,49 @@ export function defaultFormats(platform: string | null | undefined): string {
   return "Vertical 9:16 (historias y reels) y feed 4:5";
 }
 
+/** Referencia: video reproducible o imagen; los carruseles se pasan con flechas. */
 export function RefMedia({ media }: { media: Media[] }) {
-  const m = media[0];
+  const [i, setI] = useState(0);
+  const m = media[i];
   if (!m) return null;
-  return m.type === "video" ? (
-    <video controls playsInline preload="metadata" poster={m.thumb ?? undefined} src={m.url} />
-  ) : (
-    <a href={m.url} target="_blank" rel="noreferrer"><img src={m.url} alt="" loading="lazy" /></a>
+  return (
+    <div className="refmedia">
+      {m.type === "video" ? (
+        <video key={m.url} controls playsInline preload="metadata" poster={m.thumb ?? undefined} src={m.url} />
+      ) : (
+        <a href={m.url} target="_blank" rel="noreferrer"><img src={m.url} alt="" loading="lazy" /></a>
+      )}
+      {media.length > 1 && (
+        <>
+          <button type="button" className="car-nav prev" onClick={() => setI((i - 1 + media.length) % media.length)} aria-label="Anterior">‹</button>
+          <button type="button" className="car-nav next" onClick={() => setI((i + 1) % media.length)} aria-label="Siguiente">›</button>
+          <span className="car-count">{i + 1}/{media.length}</span>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Hook en video: los primeros 5 segundos en loop, sin sonido hasta que lo activen. */
+function HookClip({ media }: { media: Media[] }) {
+  const v = media.find((x) => x.type === "video");
+  if (!v) return <RefMedia media={media} />;
+  return (
+    <video
+      src={`${v.url}#t=0,${HOOK_SECONDS}`}
+      poster={v.thumb ?? undefined}
+      muted
+      autoPlay
+      playsInline
+      controls
+      preload="metadata"
+      onTimeUpdate={(e) => {
+        if (e.currentTarget.currentTime >= HOOK_SECONDS) {
+          e.currentTarget.currentTime = 0;
+          void e.currentTarget.play();
+        }
+      }}
+    />
   );
 }
 
@@ -154,6 +193,24 @@ export default function PedidoPublic() {
             );
           })}
         </section>
+
+        {(p.hook_ads?.length ?? 0) > 0 && (
+          <section className="hooks-sec">
+            <h2>Hooks sugeridos</h2>
+            <p className="muted">Los primeros {HOOK_SECONDS} segundos de cada video: ideas para arrancar cualquiera de los creativos.</p>
+            <div className="hook-grid">
+              {p.hook_ads!.map((h, k) => (
+                <figure key={k}>
+                  <HookClip media={h.media} />
+                  <figcaption>
+                    <span className="id">Hook {k + 1}{h.hook_type ? ` · ${h.hook_type}` : ""}</span>
+                    {h.hook && <span>“{h.hook}”</span>}
+                  </figcaption>
+                </figure>
+              ))}
+            </div>
+          </section>
+        )}
 
         {notes.length > 0 && (
           <section className="notes">

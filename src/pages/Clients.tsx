@@ -21,7 +21,7 @@ const EMPTY: Omit<Client, "id"> = {
 
 const lines = (v: string) => v.split("\n").map((s) => s.trim()).filter(Boolean);
 
-function ClientForm({ initial, onSaved, onCancel }: { initial: Client | null; onSaved: () => void; onCancel?: () => void }) {
+export function ClientForm({ initial, onSaved, onCancel }: { initial: Client | null; onSaved: (id: string) => void; onCancel?: () => void }) {
   const [c, setC] = useState<Omit<Client, "id">>(initial ?? EMPTY);
   const [saving, setSaving] = useState(false);
   const set = (patch: Partial<Client>) => setC({ ...c, ...patch });
@@ -30,13 +30,13 @@ function ClientForm({ initial, onSaved, onCancel }: { initial: Client | null; on
   async function save(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
-    const { error } = initial
-      ? await supabase.from("clients").update(c).eq("id", initial.id)
-      : await supabase.from("clients").insert(c);
+    const { data, error } = initial
+      ? await supabase.from("clients").update(c).eq("id", initial.id).select("id").single()
+      : await supabase.from("clients").insert(c).select("id").single();
     setSaving(false);
-    if (error) return alert(error.message);
+    if (error || !data) return alert(error?.message ?? "No pude guardar");
     if (!initial) setC(EMPTY);
-    onSaved();
+    onSaved(data.id);
   }
 
   return (

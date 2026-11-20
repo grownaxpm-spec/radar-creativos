@@ -19,6 +19,7 @@ export default function PedidoEditor() {
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
   const started = useRef(false);
+  const [hookAds, setHookAds] = useState<Ad[]>([]);
 
   async function load() {
     const { data: ped } = await supabase.from("pedidos").select("*").eq("id", id).single();
@@ -28,6 +29,10 @@ export default function PedidoEditor() {
     const { data: ads } = adIds.length ? await supabase.from("ads_view").select("*").in("id", adIds) : { data: [] };
     const byId = new Map((ads ?? []).map((a: Ad) => [a.id, a]));
     setItems((its ?? []).map((i) => ({ ...i, ad: i.ad_id ? byId.get(i.ad_id) : undefined })));
+    const hookIds: string[] = (ped as FullPedido | null)?.hook_ad_ids ?? [];
+    const { data: hs } = hookIds.length ? await supabase.from("ads_view").select("*").in("id", hookIds) : { data: [] };
+    const hById = new Map((hs ?? []).map((a: Ad) => [a.id, a]));
+    setHookAds(hookIds.map((x) => hById.get(x)).filter((a): a is Ad => !!a));
     return ped as FullPedido;
   }
 
@@ -273,7 +278,34 @@ Leé el link, respetá la estructura y los guiones que ya están, y mejoralos si
       </div>
 
       <div className="card">
-        <h2>Hooks sugeridos para el rubro</h2>
+        <h2>Hooks sugeridos (videos de 5 s en el link)</h2>
+        {hookAds.length === 0 && (
+          <p className="muted small">En la biblioteca marcá “Hook” en los videos con mejor arranque y se suman acá al crear el pedido.</p>
+        )}
+        <div className="grid hooks">
+          {hookAds.map((a) => (
+            <div key={a.id}>
+              <MediaView media={a.media} clip compact />
+              <div className="row between small" style={{ marginTop: 4 }}>
+                <span className="ellipsis">{a.page_name}</span>
+                <button
+                  className="ghost small"
+                  onClick={() => {
+                    setHookAds(hookAds.filter((x) => x.id !== a.id));
+                    setP({ ...p, hook_ad_ids: p.hook_ad_ids.filter((x) => x !== a.id) });
+                  }}
+                >
+                  Sacar
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+        <p className="muted small">Acordate de guardar los cambios.</p>
+      </div>
+
+      <div className="card">
+        <h2>Ideas de hooks en texto (para el equipo, no salen en el link)</h2>
         {p.hooks.length === 0 && <p className="muted small">Se completan al generar con IA. También podés escribirlos.</p>}
         {p.hooks.map((h, k) => (
           <div className="row" key={k} style={{ marginBottom: 6 }}>

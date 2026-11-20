@@ -1,18 +1,21 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { kickSearch } from "./SearchList.tsx";
-import { COUNTRIES, supabase, type Client } from "../lib.ts";
+import { COUNTRIES, DEFAULT_COUNTRIES, EVENTS, supabase, type Client } from "../lib.ts";
 
 
 export default function SearchPage() {
   const [clients, setClients] = useState<Client[]>([]);
   const nav = useNavigate();
-  const [clientId, setClientId] = useState("");
+  const [params] = useSearchParams();
+  const [clientId, setClientId] = useState(params.get("cliente") ?? "");
+  const [purpose, setPurpose] = useState("");
+  const [otherEvent, setOtherEvent] = useState("");
   const [rubro, setRubro] = useState("");
   const [keywords, setKeywords] = useState("");
-  const [countries, setCountries] = useState<string[]>(["AR"]);
+  const [countries, setCountries] = useState<string[]>(DEFAULT_COUNTRIES);
   const [media, setMedia] = useState("all");
-  const [perQuery, setPerQuery] = useState(50);
+  const [total, setTotal] = useState(150);
   const [recurring, setRecurring] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -28,10 +31,10 @@ export default function SearchPage() {
     if (c.rubro) setRubro(c.rubro);
     const kw = [...(c.keywords ?? []), ...(c.competitors ?? [])];
     if (kw.length) setKeywords(kw.join("\n"));
-  }, [clientId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [clientId, clients]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const kw = keywords.split("\n").map((s) => s.trim()).filter(Boolean);
-  const estimate = Math.max(1, kw.length) * countries.length * perQuery;
+  const event = purpose === "otro" ? otherEvent.trim() || null : purpose || null;
 
   async function start(e: React.FormEvent) {
     e.preventDefault();
@@ -45,7 +48,9 @@ export default function SearchPage() {
         keywords: kw.length ? kw : [rubro],
         countries,
         media_type: media,
-        max_per_query: perQuery,
+        max_per_query: Math.max(10, Math.min(100, Math.ceil((total * 1.5) / Math.max(1, (kw.length || 1) * countries.length)))),
+        max_total: total,
+        event,
         recurring,
       })
       .select()
@@ -58,7 +63,7 @@ export default function SearchPage() {
     const err = await kickSearch(s.id);
     setBusy(false);
     if (err) setMsg(`La búsqueda quedó guardada, pero no pude arrancarla: ${err}`);
-    else nav("/busquedas");
+    else nav(clientId ? `/clientes/${clientId}?tab=busquedas` : "/busquedas");
   }
 
   return (
@@ -75,6 +80,16 @@ export default function SearchPage() {
           </select>
         </label>
         <label>
+          ¿Para qué es?
+          <select value={purpose} onChange={(e) => setPurpose(e.target.value)}>
+            <option value="">Always On (todo tipo de anuncios del rubro)</option>
+            {EVENTS.map((ev) => <option key={ev} value={ev}>{ev}</option>)}
+            <option value="otro">Otro evento…</option>
+          </select>
+          {purpose === "otro" && <input value={otherEvent} onChange={(e) => setOtherEvent(e.target.value)} placeholder="Nombre del evento" />}
+          {event && <small className="muted">Para un evento solo entran anuncios 100% de venta directa del rubro: oferta, precio, cuotas, urgencia, llamado a comprar.</small>}
+        </label>
+        <label>
           Rubro
           <input required value={rubro} onChange={(e) => setRubro(e.target.value)} placeholder="Calzado de cuero masculino" />
         </label>
@@ -89,7 +104,8 @@ export default function SearchPage() {
           <small className="muted">Si elegís un cliente se completan solas con las palabras clave y competidores de su perfil. Podés sumar o sacar.</small>
         </label>
         <fieldset>
-          <legend>Países</legend>
+          <legend>Países (de dónde traer contenido)</legend>
+          <small className="muted">No se trae una cantidad fija por país: entra lo mejor de cada uno hasta llegar al total.</small>
           <div className="country-grid">
             {COUNTRIES.map(([code, name]) => (
               <label key={code} className="check">
@@ -113,15 +129,15 @@ export default function SearchPage() {
             </select>
           </label>
           <label>
-            Anuncios por palabra y país
-            <input type="number" min={10} max={200} value={perQuery} onChange={(e) => setPerQuery(Number(e.target.value))} />
+            Cantidad total de anuncios (aprox.)
+            <input type="number" min={20} max={1000} step={10} value={total} onChange={(e) => setTotal(Number(e.target.value))} />
           </label>
         </div>
         <label className="check">
           <input type="checkbox" checked={recurring} onChange={(e) => setRecurring(e.target.checked)} /> Repetir cada semana (trae anuncios nuevos solo)
         </label>
         <p className="muted small">
-          Hasta ~{estimate} anuncios en total. Con el plan gratis de Apify (USD 5/mes) entran entre 1.000 y 3.000 por mes.
+          Alrededor de {total} anuncios entre todos los países. Con el plan gratis de Apify (USD 5/mes) entran entre 1.000 y 3.000 por mes.
         </p>
         <button type="submit" disabled={busy || countries.length === 0}>
           {busy ? "Arrancando…" : "Empezar búsqueda"}
@@ -134,7 +150,8 @@ export default function SearchPage() {
         <ol className="small" style={{ paddingLeft: 18 }}>
           <li>Elegí el cliente: se completan solas sus palabras clave y competidores.</li>
           <li>Apretá <b>Empezar búsqueda</b>. En el historial vas a ver el % de avance.</li>
-          <li>La IA descarta lo que no es del rubro, detecta el hook y propone cómo adaptarlo al cliente.</li>
+          <li>La IA descarta lo que no es del rubro, los marketplaces y los anuncios de catálogo, detecta el hook y propone cómo adaptarlo al cliente.</li>
+          <li>Si es para un evento (Black Friday, Cyber, Hot Sale…), solo quedan anuncios de venta directa.</li>
           <li>Cuando diga “Lista”, los anuncios aparecen en la <b>Biblioteca</b> ordenados por puntaje.</li>
         </ol>
       </div>

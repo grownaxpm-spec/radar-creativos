@@ -10,11 +10,13 @@ export default function PedidoDialog({
   clients,
   clientId: initialClient,
   adIds,
+  hookIds = [],
   onClose,
 }: {
   clients: Client[];
   clientId: string;
   adIds: string[];
+  hookIds?: string[];
   onClose: () => void;
 }) {
   const nav = useNavigate();
@@ -52,6 +54,7 @@ export default function PedidoDialog({
         platform,
         objective: objective || null,
         notes: notes || null,
+        hook_ad_ids: hookIds,
       })
       .select()
       .single();

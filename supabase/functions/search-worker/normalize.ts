@@ -21,6 +21,8 @@ export type NormalizedAd = {
   is_active: boolean | null;
   snapshot_url: string;
   variations: number | null;
+  /** Anuncio de catálogo (productos dinámicos): no sirve como referencia creativa */
+  is_catalog: boolean;
 };
 
 type Raw = Record<string, any>;
@@ -94,7 +96,10 @@ export function normalizeAd(raw: Raw, country?: string): NormalizedAd | null {
   else if (display === "VIDEO" || media.some((m) => m.type === "video")) format = "video";
   else format = "image";
 
-  const body = cleanTemplate(text(pick(snap, "body")) ?? text(cards[0]?.body) ?? null);
+  const rawBody = text(pick(snap, "body")) ?? text(cards[0]?.body) ?? null;
+  const body = cleanTemplate(rawBody);
+  const templated = [rawBody, text(pick(snap, "title")), ...cards.map((c) => text(c?.title) ?? text(c?.body))].some((t) => !!t && /\{\{\s*product\./i.test(t));
+  const is_catalog = display === "DPA" || templated;
   const platforms = (pick(raw, "publisherPlatform", "publisher_platform", "publisherPlatforms") ?? []) as string[];
 
   return {
@@ -115,6 +120,7 @@ export function normalizeAd(raw: Raw, country?: string): NormalizedAd | null {
     is_active: pick(raw, "isActive", "is_active") ?? null,
     snapshot_url: `https://www.facebook.com/ads/library/?id=${id}`,
     variations: Number(pick(raw, "collationCount", "collation_count")) || null,
+    is_catalog,
   };
 }
 
@@ -200,4 +206,12 @@ export function matchesRubro(ad: Pick<NormalizedAd, "body" | "title" | "page_nam
     .replace(/[̀-ͯ]/g, "");
   if (competitors.some((c) => c && hay.includes(c.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "")))) return true;
   return roots.some((r) => hay.includes(r));
+}
+
+/**
+ * Cantidad a pedirle a cada consulta (palabra × país) para llegar al total buscado sin forzar
+ * un número fijo por país: se pide un poco de más y quedan los que traiga cada país.
+ */
+export function perQueryLimit(total: number, queries: number): number {
+  return Math.max(10, Math.min(100, Math.ceil((total * 1.5) / Math.max(1, queries))));
 }

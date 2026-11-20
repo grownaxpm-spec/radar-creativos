@@ -15,7 +15,8 @@ const GROUPS: [GroupBy, string][] = [
   ["format", "Por formato"],
 ];
 
-export default function Library() {
+/** Biblioteca de anuncios. Con `fixedClientId` (sección del cliente) muestra solo los anuncios de ese cliente. */
+export default function Library({ fixedClientId }: { fixedClientId?: string } = {}) {
   const nav = useNavigate();
   const sel = useSelection();
   const [params, setParams] = useSearchParams();
@@ -33,13 +34,17 @@ export default function Library() {
   // filtros (la vista y la búsqueda quedan en la URL para poder compartir el link)
   const hookMode = params.get("vista") === "hooks";
   const searchId = params.get("busqueda") ?? "";
-  const [clientId, setClientId] = useState(() => {
+  const [clientIdState, setClientId] = useState(() => {
     try {
       return localStorage.getItem("cliente") ?? "";
     } catch {
       return "";
     }
   });
+  const clientId = fixedClientId ?? clientIdState;
+  const [used, setUsed] = useState<Set<string>>(new Set());
+  const [hideUsed, setHideUsed] = useState(false);
+  const [onlySale, setOnlySale] = useState(false);
   const [onlySaved, setOnlySaved] = useState(false);
   const [format, setFormat] = useState("");
   const [angle, setAngle] = useState("");
@@ -58,16 +63,22 @@ export default function Library() {
 
   useEffect(() => {
     supabase.from("clients").select("*").order("name").then(({ data }) => setClients((data as Client[]) ?? []));
-    supabase.from("searches").select("*").order("created_at", { ascending: false }).limit(50).then(({ data }) => setSearches(data ?? []));
-  }, []);
+    let sq = supabase.from("searches").select("*").order("created_at", { ascending: false }).limit(50);
+    if (fixedClientId) sq = sq.eq("client_id", fixedClientId);
+    sq.then(({ data }) => setSearches(data ?? []));
+  }, [fixedClientId]);
 
   // Cliente activo: define favoritos y descartados
   useEffect(() => {
     try {
-      localStorage.setItem("cliente", clientId);
+      if (!fixedClientId) localStorage.setItem("cliente", clientId);
     } catch {
       /* sin almacenamiento */
     }
+    // Anuncios que ya se usaron en pedidos de este cliente (como referencia o como hook)
+    if (clientId)
+      supabase.from("used_ads").select("ad_id").eq("client_id", clientId).then(({ data }) => setUsed(new Set((data ?? []).map((r) => r.ad_id))));
+    else setUsed(new Set());
     let sq = supabase.from("saves").select("ad_id");
     sq = clientId ? sq.eq("client_id", clientId) : sq.is("client_id", null);
     sq.then(({ data }) => setSaves(new Set((data ?? []).map((r) => r.ad_id))));
@@ -77,7 +88,7 @@ export default function Library() {
     dq.then(({ data }) => setDiscards(new Set((data ?? []).map((r) => r.ad_id))));
   }, [clientId]);
 
-  useEffect(() => setPage(0), [searchId, clientId, onlySaved, format, angle, hookType, order, q, hookMode]);
+  useEffect(() => setPage(0), [searchId, clientId, onlySaved, format, angle, hookType, order, q, hookMode, onlySale]);
 
   useEffect(() => {
     let cancelled = false;
@@ -87,7 +98,9 @@ export default function Library() {
         ? supabase.from("saved_ads").select("*")
         : searchId
           ? supabase.from("search_ads").select("*").eq("search_id", searchId)
-          : supabase.from("ads_view").select("*");
+          : fixedClientId
+            ? supabase.from("client_ads").select("*").eq("client_id", fixedClientId)
+            : supabase.from("ads_view").select("*");
       query = query.or("relevant.is.null,relevant.eq.true");
       if (onlySaved) query = clientId ? query.eq("saved_client_id", clientId) : query.is("saved_client_id", null);
       if (onlySaved && searchId) {
@@ -97,6 +110,7 @@ export default function Library() {
       if (hookMode) query = query.eq("format", "video").not("hook", "is", null);
       else if (format) query = query.eq("format", format);
       if (angle) query = query.eq("angle", angle);
+      if (onlySale) query = query.eq("direct_sale", true);
       if (hookType) query = query.eq("hook_type", hookType);
       if (q.trim()) query = query.or(`body.ilike.%${q.trim()}%,page_name.ilike.%${q.trim()}%,hook.ilike.%${q.trim()}%`);
       query =
@@ -115,9 +129,12 @@ export default function Library() {
     return () => {
       cancelled = true;
     };
-  }, [searchId, onlySaved, clientId, onlySaved ? saves : null, format, angle, hookType, order, q, page, hookMode]);
+  }, [searchId, onlySaved, clientId, onlySaved ? saves : null, format, angle, hookType, order, q, page, hookMode, onlySale]);
 
-  const visible = useMemo(() => ads.filter((a) => !discards.has(a.id)), [ads, discards]);
+  const visible = useMemo(
+    () => ads.filter((a) => !discards.has(a.id) && !(hideUsed && used.has(a.id))),
+    [ads, discards, hideUsed, used],
+  );
   const groups = useMemo(() => {
     if (!groupBy) return [["", visible]] as [string, Ad[]][];
     const m = new Map<string, Ad[]>();
@@ -146,6 +163,7 @@ export default function Library() {
   async function discard(ad: Ad) {
     setDiscards(new Set([...discards, ad.id]));
     if (sel.ids.includes(ad.id)) sel.toggle(ad.id);
+    if (sel.hookIds.includes(ad.id)) sel.toggleHook(ad.id);
     if (open?.id === ad.id) setOpen(null);
     await supabase.from("discards").upsert({ ad_id: ad.id, client_id: clientId || null }, { onConflict: "ad_id,client_id" });
   }
@@ -176,17 +194,21 @@ export default function Library() {
         <button className={!hookMode ? "" : "ghost"} onClick={() => setParam("vista", "")}>Anuncios</button>
         <button className={hookMode ? "" : "ghost"} onClick={() => setParam("vista", "hooks")}>Solo hooks (5 s)</button>
         <span className="muted small">
-          {hookMode ? "Cada video se reproduce solo en sus primeros 5 segundos, con el hook escrito abajo." : "Hacé clic en un anuncio para verlo en grande con el análisis."}
+          {hookMode
+            ? "Cada video se reproduce solo en sus primeros 5 segundos. Marcá “Hook” en los mejores para sumarlos al pedido."
+            : "Tocá el video para verlo en grande con el análisis. Marcá “Ref” para usarlo de referencia y “Hook” para los hooks sugeridos."}
         </span>
       </div>
 
       <div className="filters">
-        <select value={clientId} onChange={(e) => setClientId(e.target.value)} title="Cliente activo: define favoritos y descartados">
-          <option value="">Sin cliente (general)</option>
-          {clients.map((c) => (
-            <option key={c.id} value={c.id}>Trabajando para {c.name}</option>
-          ))}
-        </select>
+        {!fixedClientId && (
+          <select value={clientId} onChange={(e) => setClientId(e.target.value)} title="Cliente activo: define favoritos y descartados">
+            <option value="">Sin cliente (general)</option>
+            {clients.map((c) => (
+              <option key={c.id} value={c.id}>Trabajando para {c.name}</option>
+            ))}
+          </select>
+        )}
         <select value={searchId} onChange={(e) => setParam("busqueda", e.target.value)}>
           <option value="">Todas las búsquedas</option>
           {searches.map((s) => (
@@ -222,6 +244,14 @@ export default function Library() {
         <label className="check">
           <input type="checkbox" checked={onlySaved} onChange={(e) => setOnlySaved(e.target.checked)} /> Solo favoritos
         </label>
+        <label className="check" title="Anuncios con oferta, precio o llamado a comprar">
+          <input type="checkbox" checked={onlySale} onChange={(e) => setOnlySale(e.target.checked)} /> Solo venta directa
+        </label>
+        {clientId && (
+          <label className="check" title="Esconde los anuncios que ya usaste como referencia o hook en un pedido de este cliente">
+            <input type="checkbox" checked={hideUsed} onChange={(e) => setHideUsed(e.target.checked)} /> Ocultar los ya usados en pedidos
+          </label>
+        )}
         <input placeholder="Buscar marca, texto o hook…" value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
       {countriesSeen.length > 1 && <p className="muted small">Países: {countriesSeen.join(", ")}</p>}
@@ -229,7 +259,7 @@ export default function Library() {
       {!loading && visible.length === 0 && (
         <div className="empty-state">
           <p>{hookMode ? "Todavía no hay hooks en video para estos filtros." : "Todavía no hay anuncios acá."}</p>
-          <button onClick={() => nav("/buscar")}>Empezar una búsqueda</button>
+          <button onClick={() => nav(fixedClientId ? `/buscar?cliente=${fixedClientId}` : "/buscar")}>Empezar una búsqueda</button>
         </div>
       )}
 
@@ -250,8 +280,11 @@ export default function Library() {
                 ad={ad}
                 hookMode={hookMode}
                 selected={sel.ids.includes(ad.id)}
+                hookSelected={sel.hookIds.includes(ad.id)}
+                used={used.has(ad.id)}
                 saved={saves.has(ad.id)}
                 onSelect={() => sel.toggle(ad.id)}
+                onSelectHook={() => sel.toggleHook(ad.id)}
                 onSave={() => toggleSave(ad)}
                 onDiscard={() => discard(ad)}
                 onOpen={() => setOpen(ad)}
@@ -271,20 +304,22 @@ export default function Library() {
         <AdModal
           ad={open}
           selected={sel.ids.includes(open.id)}
+          hookSelected={sel.hookIds.includes(open.id)}
           onClose={() => setOpen(null)}
           onSelect={() => sel.toggle(open.id)}
+          onSelectHook={() => sel.toggleHook(open.id)}
           onDiscard={() => discard(open)}
         />
       )}
 
-      {sel.ids.length > 0 && (
+      {(sel.ids.length > 0 || sel.hookIds.length > 0) && (
         <div className="tray">
           <span>
-            <b>{sel.ids.length}</b> elegidos{clientName ? ` para ${clientName}` : ""}
+            <b>{sel.ids.length}</b> referencias · <b>{sel.hookIds.length}</b> hooks{clientName ? ` para ${clientName}` : ""}
           </span>
           <button className="ghost small" onClick={() => { sel.clear(); setShared(null); }}>Limpiar</button>
-          <button className="ghost" onClick={shareRefs}>Compartir referencias</button>
-          <button onClick={() => setDialog(true)}>Crear pedido de creativos →</button>
+          <button className="ghost" onClick={shareRefs} disabled={sel.ids.length === 0}>Compartir referencias</button>
+          <button onClick={() => setDialog(true)} disabled={sel.ids.length === 0}>Crear pedido de creativos →</button>
           {shared && (
             <div className="shared">
               Link copiado: <a href={shared} target="_blank" rel="noreferrer">{shared}</a>
@@ -293,7 +328,7 @@ export default function Library() {
         </div>
       )}
 
-      {dialog && <PedidoDialog clients={clients} clientId={clientId} adIds={sel.ids} onClose={() => setDialog(false)} />}
+      {dialog && <PedidoDialog clients={clients} clientId={clientId} adIds={sel.ids} hookIds={sel.hookIds} onClose={() => setDialog(false)} />}
     </div>
   );
 }

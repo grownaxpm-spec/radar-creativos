@@ -16,21 +16,19 @@ export async function kickSearch(id: string): Promise<string | null> {
 }
 
 /** Lista de búsquedas con su avance en vivo. */
-export default function SearchList({ limit = 50 }: { limit?: number }) {
+export default function SearchList({ limit = 50, clientId }: { limit?: number; clientId?: string }) {
   const [list, setList] = useState<Search[]>([]);
   const [clients, setClients] = useState<Map<string, string>>(new Map());
 
-  const load = () =>
-    supabase
-      .from("searches")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(limit)
-      .then(({ data }) => {
+  const load = () => {
+    let q = supabase.from("searches").select("*").order("created_at", { ascending: false }).limit(limit);
+    if (clientId) q = q.eq("client_id", clientId);
+    return q.then(({ data }) => {
         setList(data ?? []);
         // Mientras mirás, empujamos al robot para que el avance sea más rápido (igual corre solo cada minuto)
         for (const s of data ?? []) if (s.status === "running") void supabase.functions.invoke("search-worker", { body: { action: "tick", search_id: s.id } });
       });
+  };
 
   useEffect(() => {
     supabase.from("clients").select("id,name").then(({ data }) => setClients(new Map((data ?? []).map((c: Pick<Client, "id" | "name">) => [c.id, c.name]))));
@@ -60,6 +58,7 @@ export default function SearchList({ limit = 50 }: { limit?: number }) {
           <div style={{ minWidth: 0 }}>
             <b>{s.client_id ? clients.get(s.client_id) ?? "Cliente" : "Sin cliente"}</b>{" "}
             <span className="muted">· {s.countries.join(", ")} · {new Date(s.created_at).toLocaleDateString("es-AR")}</span>
+            {s.event && <span className="chip sale">{s.event}</span>}
             {s.recurring && <span className="chip light">semanal</span>}
             <div className="muted small ellipsis">{s.keywords.join(" · ")}</div>
             {s.status === "running" && (
@@ -82,7 +81,7 @@ export default function SearchList({ limit = 50 }: { limit?: number }) {
               {STATUS[s.status] ?? s.status}
               {s.status === "running" && s.progress_pct != null ? ` ${s.progress_pct}%` : ""}
             </span>
-            {s.status === "done" && <Link to={`/biblioteca?busqueda=${s.id}`}>{s.total_found} anuncios →</Link>}
+            {s.status === "done" && <Link to={s.client_id ? `/clientes/${s.client_id}?busqueda=${s.id}` : `/biblioteca?busqueda=${s.id}`}>{s.total_found} anuncios →</Link>}
             <div className="row" style={{ gap: 4 }}>
               {s.status !== "running" && (
                 <button className="ghost small" onClick={() => runNow(s.id)}>

@@ -6,30 +6,40 @@ import Home from "./pages/Home.tsx";
 import Library from "./pages/Library.tsx";
 import SearchPage from "./pages/Search.tsx";
 import Searches from "./pages/Searches.tsx";
-import Clients from "./pages/Clients.tsx";
+import ClientPage from "./pages/ClientPage.tsx";
 import Pedidos from "./pages/Pedidos.tsx";
 import PedidoEditor from "./pages/PedidoEditor.tsx";
 import PedidoPublic from "./pages/PedidoPublic.tsx";
 import RefsPublic from "./pages/RefsPublic.tsx";
 import Login from "./pages/Login.tsx";
 
-// ---- Selección de anuncios para armar un pedido o compartir referencias (persiste en el navegador) ----
-type Sel = { ids: string[]; toggle: (id: string) => void; clear: () => void; set: (ids: string[]) => void };
-const SelectionCtx = createContext<Sel>({ ids: [], toggle: () => {}, clear: () => {}, set: () => {} });
+// ---- Selección para armar un pedido (persiste en el navegador) ----
+// ids: referencias (una pieza por cada una) · hookIds: videos cuyo hook de 5 s va en "Hooks sugeridos"
+type Sel = {
+  ids: string[];
+  hookIds: string[];
+  toggle: (id: string) => void;
+  toggleHook: (id: string) => void;
+  clear: () => void;
+  set: (ids: string[]) => void;
+};
+const SelectionCtx = createContext<Sel>({ ids: [], hookIds: [], toggle: () => {}, toggleHook: () => {}, clear: () => {}, set: () => {} });
 export const useSelection = () => useContext(SelectionCtx);
 
-function loadSel(): string[] {
+function loadSel(key: string): string[] {
   try {
-    return JSON.parse(localStorage.getItem("seleccion") ?? "[]");
+    return JSON.parse(localStorage.getItem(key) ?? "[]");
   } catch {
     return [];
   }
 }
+const flip = (list: string[], id: string) => (list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
 
 export default function App() {
   const location = useLocation();
   const [session, setSession] = useState<Session | null | undefined>(undefined);
-  const [ids, setIds] = useState<string[]>(loadSel);
+  const [ids, setIds] = useState<string[]>(() => loadSel("seleccion"));
+  const [hookIds, setHookIds] = useState<string[]>(() => loadSel("seleccion-hooks"));
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
@@ -40,10 +50,11 @@ export default function App() {
   useEffect(() => {
     try {
       localStorage.setItem("seleccion", JSON.stringify(ids));
+      localStorage.setItem("seleccion-hooks", JSON.stringify(hookIds));
     } catch {
       /* sin almacenamiento local */
     }
-  }, [ids]);
+  }, [ids, hookIds]);
 
   // Los links para el cliente (pedido y referencias) no piden login
   if (location.pathname.startsWith("/p/") || location.pathname.startsWith("/r/")) {
@@ -60,8 +71,13 @@ export default function App() {
 
   const sel: Sel = {
     ids,
-    toggle: (id) => setIds((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id])),
-    clear: () => setIds([]),
+    hookIds,
+    toggle: (id) => setIds((s) => flip(s, id)),
+    toggleHook: (id) => setHookIds((s) => flip(s, id)),
+    clear: () => {
+      setIds([]);
+      setHookIds([]);
+    },
     set: setIds,
   };
 
@@ -77,7 +93,6 @@ export default function App() {
           <NavLink to="/busquedas">Historial de búsquedas</NavLink>
           <NavLink to="/biblioteca">Biblioteca</NavLink>
           <NavLink to="/pedidos">Pedidos</NavLink>
-          <NavLink to="/clientes">Clientes</NavLink>
         </nav>
         <button className="ghost small" onClick={() => supabase.auth.signOut()}>
           Salir
@@ -89,7 +104,7 @@ export default function App() {
           <Route path="/buscar" element={<SearchPage />} />
           <Route path="/busquedas" element={<Searches />} />
           <Route path="/biblioteca" element={<Library />} />
-          <Route path="/clientes" element={<Clients />} />
+          <Route path="/clientes/:id" element={<ClientPage />} />
           <Route path="/pedidos" element={<Pedidos />} />
           <Route path="/pedidos/:id" element={<PedidoEditor />} />
         </Routes>

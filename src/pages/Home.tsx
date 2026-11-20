@@ -1,49 +1,37 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { supabase, type Pedido } from "../lib.ts";
+import { supabase, type Client, type Pedido } from "../lib.ts";
 import SearchList from "./SearchList.tsx";
+import { ClientLogo } from "./ClientPage.tsx";
 
 export default function Home() {
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
-  const [stats, setStats] = useState({ ads: 0, hooks: 0 });
+  const [clients, setClients] = useState<Client[] | null>(null);
 
   useEffect(() => {
+    supabase.from("clients").select("*").order("name").then(({ data }) => setClients((data as Client[]) ?? []));
     supabase.from("pedidos").select("*").order("created_at", { ascending: false }).limit(5).then(({ data }) => setPedidos((data as Pedido[]) ?? []));
-    Promise.all([
-      supabase.from("ads").select("id", { count: "exact", head: true }).or("relevant.is.null,relevant.eq.true"),
-      supabase.from("ads").select("id", { count: "exact", head: true }).not("hook", "is", null).eq("format", "video"),
-    ]).then(([a, h]) => setStats({ ads: a.count ?? 0, hooks: h.count ?? 0 }));
   }, []);
 
   return (
     <div>
-      <section className="hero-panel">
-        <div>
-          <p className="kicker">Grownax · Pedido de creativos</p>
-          <h1>Referencias de la competencia, <span className="gx-em">listas para pedir piezas.</span></h1>
-          <p className="muted">
-            Buscá anuncios del rubro de tu cliente, quedate con los mejores hooks y armá el pedido de creativos con los videos adentro.
-          </p>
+      <section className="home-clients">
+        <p className="kicker">Grownax · Pedido de creativos</p>
+        <h1>¿Para qué cliente trabajamos hoy?</h1>
+        <div className="client-grid">
+          {(clients ?? []).map((c) => (
+            <Link key={c.id} to={`/clientes/${c.id}`} className="client-tile">
+              <ClientLogo client={c} size={48} />
+              <b>{c.name}</b>
+              {c.rubro && <span className="muted small">{c.rubro}</span>}
+            </Link>
+          ))}
+          <Link to="/clientes/nuevo" className="client-tile add">
+            <span className="client-initial" style={{ width: 48, height: 48, fontSize: 24 }}>+</span>
+            <b>Nuevo cliente</b>
+          </Link>
         </div>
-        <Link to="/buscar">
-          <button className="big">Empezar nueva búsqueda</button>
-        </Link>
       </section>
-
-      <div className="stats">
-        <Link to="/biblioteca" className="stat">
-          <b>{stats.ads}</b>
-          <span>anuncios en la biblioteca</span>
-        </Link>
-        <Link to="/biblioteca?vista=hooks" className="stat">
-          <b>{stats.hooks}</b>
-          <span>hooks en video</span>
-        </Link>
-        <Link to="/pedidos" className="stat">
-          <b>{pedidos.length}</b>
-          <span>pedidos recientes</span>
-        </Link>
-      </div>
 
       <div className="two-col">
         <div className="card">

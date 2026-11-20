@@ -90,3 +90,7 @@
 .doc footer .foot-logo{height:22px;display:block}
 .doc footer b{color:var(--ink);font-family:var(--f-display)}
 @media print{.doc *{box-shadow:none!important}}
+.doc .refmedia{position:relative}
+.doc .car-nav{position:absolute;top:50%;transform:translateY(-50%);width:34px;height:34px;border-radius:50%;border:0;background:rgba(255,255,255,.92);color:#14161a;font-size:22px;line-height:1;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.25);display:flex;align-items:center;justify-content:center;padding:0 0 3px}
+.doc .car-nav.prev{left:8px}.doc .car-nav.next{right:8px}
+.doc .car-count{position:absolute;top:8px;right:8px;background:rgba(0,0,0,.65);color:#fff;font-size:.72rem;padding:2px 8px;border-radius:999px}

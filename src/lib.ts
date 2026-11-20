@@ -37,6 +37,7 @@ export type Ad = {
   first_seen: string;
   video_analysis?: VideoAnalysis | null;
   video_status?: "pending" | "processing" | "done" | "error" | null;
+  direct_sale?: boolean | null;
   video_error?: string | null;
 };
 
@@ -106,6 +107,8 @@ export type Search = {
   total_found: number;
   recurring: boolean;
   created_at: string;
+  event: string | null;
+  max_total: number | null;
 };
 
 export type Pedido = {
@@ -127,6 +130,7 @@ export type Pedido = {
   deadline: string | null;
   delivery_url: string | null;
   formats: string | null;
+  hook_ad_ids: string[];
   intro: string | null;
   refs_note: string | null;
   hooks: { hook: string; tipo?: string; por_que?: string }[];
@@ -200,6 +204,12 @@ export const COUNTRIES: [string, string][] = [
   ["US", "Estados Unidos"],
   ["BR", "Brasil"],
 ];
+
+/** Países que se marcan por defecto: Argentina y siempre otros mercados con buen contenido */
+export const DEFAULT_COUNTRIES = ["AR", "ES", "MX", "US", "CO", "CL"];
+
+/** Para qué es la búsqueda: en los eventos se buscan solo anuncios de venta directa */
+export const EVENTS = ["Black Friday", "Cyber Monday", "Hot Sale", "Navidad", "Día del Padre", "Día de la Madre", "Día del Niño", "San Valentín", "Rebajas / liquidación"];
 
 export const PIECE_FORMATS = ["Reel 9:16", "Story 9:16", "Feed 4:5", "Feed 1:1", "Carrusel", "Estático 4:5"];
 
