@@ -122,28 +122,33 @@ export default function PedidoPublic() {
           <h1>{p.title}</h1>
           {p.intro && <p className="lead">{p.intro}</p>}
 
-          <div className="facts">
-            <div>
-              <b>Fecha de entrega</b>
-              <span>{p.deadline ? fmtDate(p.deadline) : "A coordinar"}</span>
-            </div>
-            <div>
-              <b>Dónde entregar</b>
+          <ul className="facts">
+            <li>
+              <b>Fecha de entrega:</b> {p.deadline ? fmtDate(p.deadline) : "a coordinar"}
+            </li>
+            <li>
+              <b>Dónde entregar:</b>{" "}
               {p.delivery_url ? (
                 <a href={p.delivery_url} target="_blank" rel="noreferrer">Carpeta de creativos en Drive ↗</a>
               ) : (
-                <span>Carpeta de creativos en Drive</span>
+                "carpeta de creativos en Drive"
               )}
-            </div>
-            <div>
-              <b>Adaptaciones · {p.platform}</b>
-              <span>{formats}</span>
-            </div>
-            <div>
-              <b>Creativos</b>
-              <span>{p.items.length}</span>
-            </div>
-          </div>
+            </li>
+            <li>
+              <b>Creativos:</b> {p.items.length}
+            </li>
+            <li>
+              <b>Adaptaciones ({p.platform}):</b>
+              {/* Texto largo partido en puntos, uno por oración */}
+              <ul>
+                {formats
+                  .split(/(?<=\.)\s+(?=[A-ZÁÉÍÓÚÑ¿¡])|\n+/)
+                  .map((x) => x.trim())
+                  .filter(Boolean)
+                  .map((x, i) => <li key={i}>{x}</li>)}
+              </ul>
+            </li>
+          </ul>
         </header>
 
         <section>
