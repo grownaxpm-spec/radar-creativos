@@ -223,3 +223,11 @@ label.option input { margin-top: 4px; }
 .login-logo { height: 40px; display: block; margin-bottom: 16px; }
 .app-foot { display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--muted); font-size: 12px; padding: 24px 0 8px; }
 .app-foot img { height: 18px; }
+
+/* ---- Análisis de video ---- */
+.video-block { border-left: 3px solid var(--gx-blue); }
+.video-block summary { cursor: pointer; color: var(--accent); font-weight: 600; }
+ol.scenes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+ol.scenes li { display: grid; grid-template-columns: 78px 1fr; gap: 8px; font-size: 13px; }
+ol.scenes .t { font-family: var(--gx-font-mono); color: var(--gx-blue); font-size: 12px; padding-top: 1px; }
+.chip.video { background: var(--gx-grad-blue); color: #fff; border-color: transparent; }

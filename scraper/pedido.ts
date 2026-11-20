@@ -65,7 +65,38 @@ const SYSTEM =
   "- No inventes aclaraciones ni disclaimers. Escribí en español rioplatense, con vos.\n" +
   "Devolvé una pieza por cada posición pedida, con el mismo número de position.";
 
-type Ref = { page_name: string | null; format: string | null; body: string | null; hook: string | null; why_it_works: string | null; adaptation: string | null; days_active: number | null };
+type Ref = {
+  page_name: string | null;
+  format: string | null;
+  body: string | null;
+  hook: string | null;
+  why_it_works: string | null;
+  adaptation: string | null;
+  days_active: number | null;
+  video_analysis?: {
+    duracion_seg?: number;
+    transcripcion?: string;
+    hook_visual?: string;
+    texto_en_pantalla?: string[];
+    escenas?: { desde_seg: number; hasta_seg: number; descripcion: string }[];
+    quien_habla?: string;
+    ritmo?: string;
+    como_replicarlo?: string;
+  } | null;
+};
+
+// Lo que la IA vio en el video completo: con esto el guion replica la estructura real, no la miniatura
+function videoLines(v: Ref["video_analysis"]): string[] {
+  if (!v) return [];
+  return [
+    `  VIDEO ANALIZADO (${Math.round(v.duracion_seg ?? 0)} s, ${v.quien_habla ?? ""}; ritmo: ${v.ritmo ?? ""})`,
+    v.hook_visual && `  Primeros 3 segundos: ${v.hook_visual}`,
+    v.escenas?.length && `  Escenas: ${v.escenas.map((e) => `[${e.desde_seg}-${e.hasta_seg}s] ${e.descripcion}`).join(" | ")}`,
+    v.texto_en_pantalla?.length && `  Textos en pantalla: ${v.texto_en_pantalla.join(" / ")}`,
+    v.transcripcion && `  Transcripción: ${v.transcripcion.replace(/\s+/g, " ").slice(0, 900)}`,
+    v.como_replicarlo && `  Cómo replicarlo: ${v.como_replicarlo}`,
+  ].filter(Boolean) as string[];
+}
 
 export async function draftPedido(input: {
   apiKey: string;
@@ -110,6 +141,7 @@ export async function draftPedido(input: {
         r.why_it_works && `  Por qué funciona: ${r.why_it_works}`,
         r.adaptation && `  Idea de adaptación: ${r.adaptation}`,
         r.body && `  Texto del anuncio: ${r.body.replace(/\s+/g, " ").slice(0, 500)}`,
+        ...videoLines(r.video_analysis),
       ]
         .filter(Boolean)
         .join("\n");

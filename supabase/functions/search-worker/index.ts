@@ -22,6 +22,7 @@ const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY");
 const CLAUDE_MODEL = Deno.env.get("CLAUDE_MODEL") || undefined;
 const PEDIDO_MODEL = Deno.env.get("CLAUDE_PEDIDO_MODEL") || "claude-opus-5-5";
 const SELF_URL = `${SUPABASE_URL}/functions/v1/search-worker`;
+const APP_URL = Deno.env.get("APP_URL") || "https://radar-creativos.vercel.app";
 const CHUNK = 8; // anuncios por tanda (chico: el servidor de Supabase tiene poca memoria)
 const BUDGET_MS = 60_000; // una tanda por invocación y seguimos en otra
 
@@ -374,7 +375,7 @@ async function generatePedido(pedidoId: string) {
     const { data: items } = await db.from("pedido_items").select("id, position, format, angle, ad_id").eq("pedido_id", pedidoId).order("position");
     const adIds = (items ?? []).map((i) => i.ad_id).filter(Boolean);
     const { data: ads } = adIds.length
-      ? await db.from("ads_view").select("id, page_name, format, body, hook, why_it_works, adaptation, days_active").in("id", adIds)
+      ? await db.from("ads_view").select("id, page_name, format, body, hook, why_it_works, adaptation, days_active, video_analysis").in("id", adIds)
       : { data: [] };
     const byId = new Map((ads ?? []).map((a: any) => [a.id, a]));
     const draft = await draftPedido({
@@ -427,6 +428,78 @@ async function generatePedido(pedidoId: string) {
   }
 }
 
+// ---------- Análisis del video completo (imagen + audio) ----------
+// Lo hace Gemini desde una función de Vercel (/api/analyze-video), que tiene acceso al AI Gateway sin claves.
+async function analyzeVideo(adId: string) {
+  const setA = (patch: Record<string, unknown>) => db.from("ads").update(patch).eq("id", adId);
+  try {
+    const { data: ad } = await db.from("ads").select("id, page_name, body, media").eq("id", adId).single();
+    const video = ((ad?.media ?? []) as MediaItem[]).find((m) => m.type === "video");
+    if (!video) throw new Error("El anuncio no tiene video");
+    if (!video.url.includes("/storage/v1/")) throw new Error("El video no quedó guardado (pesa más de 20 MB o el link de Meta venció)");
+    const { data: sec } = await db.from("app_secrets").select("value").eq("name", "video_secret").single();
+    if (!sec) throw new Error("Falta video_secret");
+    await setA({ video_status: "processing", video_error: null, video_at: new Date().toISOString() });
+    const res = await fetch(`${APP_URL}/api/analyze-video`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-video-secret": sec.value },
+      body: JSON.stringify({
+        video_url: video.url,
+        contexto: `Marca: ${ad!.page_name ?? "?"}\nTexto del anuncio: ${(ad!.body ?? "").slice(0, 600)}`,
+      }),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok || !out.analysis) throw new Error(out.error ?? `El análisis respondió ${res.status}`);
+    const v = out.analysis;
+    await setA({
+      video_analysis: v,
+      video_status: "done",
+      video_error: null,
+      // El hook real sale del video, no de la miniatura
+      hook: v.hook_audio || v.hook_visual || undefined,
+      why_it_works: v.por_que_funciona || undefined,
+    });
+  } catch (err) {
+    console.error("analyzeVideo", adId, err);
+    const msg = String((err as Error).message ?? err);
+    // Si a Vercel le falta la tarjeta para el AI Gateway, el video queda en espera (no en error) y se reintenta solo
+    const blocked = /credit card|tarjeta/i.test(msg);
+    await setA({
+      video_status: blocked ? null : "error",
+      video_error: blocked ? "Falta habilitar el AI Gateway en Vercel (cargar tarjeta para los créditos gratis)." : msg.slice(0, 300),
+      video_at: new Date().toISOString(),
+    });
+  }
+}
+
+// Cada minuto toma el próximo video sin analizar (los de mejor puntaje primero)
+async function videoQueue() {
+  // Si hace poco Vercel respondió que falta la tarjeta, no insistimos (se reintenta cada 15 minutos)
+  const { count: blocked } = await db
+    .from("ads")
+    .select("id", { count: "exact", head: true })
+    .like("video_error", "Falta habilitar el AI Gateway%")
+    .gt("video_at", new Date(Date.now() - 15 * 60_000).toISOString());
+  if (blocked) return 0;
+  const stale = new Date(Date.now() - 10 * 60_000).toISOString();
+  await db.from("ads").update({ video_status: null }).eq("video_status", "processing").lt("video_at", stale);
+  const { data } = await db
+    .from("ads")
+    .select("id, media")
+    .eq("format", "video")
+    .is("video_status", null)
+    .or("relevant.is.null,relevant.eq.true")
+    .order("score", { ascending: false, nullsFirst: false })
+    .limit(2);
+  for (const a of data ?? []) {
+    await db.from("ads").update({ video_status: "pending", video_at: new Date().toISOString() }).eq("id", a.id);
+    const rt = (globalThis as any).EdgeRuntime;
+    if (rt?.waitUntil) rt.waitUntil(analyzeVideo(a.id));
+    else await analyzeVideo(a.id);
+  }
+  return (data ?? []).length;
+}
+
 async function tickAll(t0: number) {
   // Arrancar pendientes y semanales vencidas
   const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString();
@@ -440,6 +513,8 @@ async function tickAll(t0: number) {
     .limit(5);
   if (e1 || e2) console.error("tickAll", e1?.message, e2?.message);
   for (const s of [...(pending ?? []), ...(weekly ?? [])] as Search[]) await start(s);
+
+  await videoQueue().catch((e) => console.error("videoQueue", e));
 
   const { data: running } = await db.from("searches").select("id").eq("status", "running");
   const results: Record<string, string> = {};
@@ -500,6 +575,17 @@ Deno.serve(async (req) => {
     if (rt?.waitUntil) rt.waitUntil(generatePedido(pedidoId));
     else await generatePedido(pedidoId);
     return json({ ok: true, status: "generating" });
+  }
+
+  if (action === "analyze_video") {
+    if (!(await isTeam(req.headers.get("authorization")))) return json({ error: "No autorizado" }, 403);
+    const adId: string | undefined = body.ad_id;
+    if (!adId || !/^[0-9a-f-]{36}$/i.test(adId)) return json({ error: "ad_id inválido" }, 400);
+    await db.from("ads").update({ video_status: "processing", video_error: null, video_at: new Date().toISOString() }).eq("id", adId);
+    const rt = (globalThis as any).EdgeRuntime;
+    if (rt?.waitUntil) rt.waitUntil(analyzeVideo(adId));
+    else await analyzeVideo(adId);
+    return json({ ok: true, status: "processing" });
   }
 
   if (action === "reanalyze") {

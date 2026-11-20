@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { formatLabel, type Ad, type Media } from "../lib.ts";
+import { formatLabel, supabase, type Ad, type Media, type VideoAnalysis } from "../lib.ts";
 
 export const HOOK_SECONDS = 10;
 
@@ -97,6 +97,7 @@ export default function AdCard({
           {!hookMode && <span className="chip">{formatLabel(ad.format)}</span>}
           {ad.hook_type && <span className="chip hook">{ad.hook_type}</span>}
           {ad.angle && <span className="chip angle">{ad.angle}</span>}
+          {ad.video_status === "done" && <span className="chip video">Video analizado</span>}
           {(ad.variations ?? 1) > 1 && <span className="chip light" title="Variaciones del mismo creativo: si lo duplican, lo están escalando">×{ad.variations}</span>}
         </div>
         {ad.hook && <p className="hook"><b>Hook:</b> “{ad.hook}”</p>}
@@ -170,6 +171,7 @@ export function AdModal({
             {ad.why_it_works && <Block title="Por qué funciona">{ad.why_it_works}</Block>}
             {ad.adaptation && <Block title="Cómo adaptarlo al cliente">{ad.adaptation}</Block>}
             {ad.ai_summary && <Block title="Qué muestra">{ad.ai_summary}</Block>}
+            {isVideo && <VideoBlock ad={ad} />}
             {ad.body && <Block title="Texto del anuncio"><span style={{ whiteSpace: "pre-line" }}>{ad.body}</span></Block>}
             <p className="muted small">
               Activo desde {ad.start_date ?? "—"}{ad.end_date ? ` hasta ${ad.end_date}` : ""}
@@ -192,6 +194,92 @@ function Block({ title, children }: { title: string; children: React.ReactNode }
     <div className="block">
       <div className="block-title">{title}</div>
       <div>{children}</div>
+    </div>
+  );
+}
+
+const fmtSec = (n: number) => `${Math.floor(n / 60)}:${String(Math.round(n % 60)).padStart(2, "0")}`;
+
+/** Análisis del video completo: transcripción, texto en pantalla y escena por escena. */
+function VideoBlock({ ad }: { ad: Ad }) {
+  const [status, setStatus] = useState(ad.video_status ?? null);
+  const [v, setV] = useState<VideoAnalysis | null>(ad.video_analysis ?? null);
+  const [error, setError] = useState(ad.video_error ?? null);
+
+  // Mientras se procesa, consulta cada 5 segundos
+  useEffect(() => {
+    if (status !== "processing" && status !== "pending") return;
+    const t = setInterval(async () => {
+      const { data } = await supabase.from("ads").select("video_status, video_analysis, video_error").eq("id", ad.id).single();
+      if (!data) return;
+      setStatus(data.video_status);
+      setV(data.video_analysis);
+      setError(data.video_error);
+    }, 5000);
+    return () => clearInterval(t);
+  }, [status, ad.id]);
+
+  async function run() {
+    setStatus("processing");
+    setError(null);
+    const { error } = await supabase.functions.invoke("search-worker", { body: { action: "analyze_video", ad_id: ad.id } });
+    if (error) {
+      setStatus("error");
+      setError(error.message);
+    }
+  }
+
+  if (!v)
+    return (
+      <div className="block video-block">
+        <div className="block-title">Lo que pasa en el video</div>
+        {status === "processing" || status === "pending" ? (
+          <div>
+            <div className="progress-bar indeterminate"><div /></div>
+            <span className="muted small">La IA está mirando el video completo (imagen y audio)… tarda menos de un minuto.</span>
+          </div>
+        ) : (
+          <div className="row wrap">
+            <span className="muted small grow">
+              {error ? `No se pudo analizar: ${error}` : "Transcripción, textos en pantalla y escena por escena."}
+            </span>
+            <button className="small" onClick={run}>{error ? "Reintentar" : "Analizar video"}</button>
+          </div>
+        )}
+      </div>
+    );
+
+  return (
+    <div className="block video-block">
+      <div className="block-title">Lo que pasa en el video · {fmtSec(v.duracion_seg)} · {v.tipo_creativo}</div>
+      <p style={{ margin: "0 0 8px" }}>
+        <b>Primeros 3 segundos:</b> {v.hook_visual}
+        {v.hook_audio && <> — <i>“{v.hook_audio}”</i></>}
+      </p>
+      <ol className="scenes">
+        {v.escenas.map((e, i) => (
+          <li key={i}>
+            <span className="t">{fmtSec(e.desde_seg)}–{fmtSec(e.hasta_seg)}</span>
+            <span>{e.descripcion}</span>
+          </li>
+        ))}
+      </ol>
+      <p className="small" style={{ margin: "8px 0 0" }}>
+        <b>Quién habla:</b> {v.quien_habla} · <b>Ritmo:</b> {v.ritmo} · <b>Audio:</b> {v.audio} · <b>Cierre:</b> {v.cta}
+      </p>
+      {v.como_replicarlo && <p className="small" style={{ margin: "8px 0 0" }}><b>Cómo replicarlo:</b> {v.como_replicarlo}</p>}
+      {v.transcripcion && (
+        <details className="small" style={{ marginTop: 8 }}>
+          <summary>Transcripción completa</summary>
+          <p style={{ whiteSpace: "pre-line", margin: "6px 0 0" }}>{v.transcripcion}</p>
+        </details>
+      )}
+      {v.texto_en_pantalla.length > 0 && (
+        <details className="small" style={{ marginTop: 6 }}>
+          <summary>Textos en pantalla</summary>
+          <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>{v.texto_en_pantalla.map((t, i) => <li key={i}>{t}</li>)}</ul>
+        </details>
+      )}
     </div>
   );
 }

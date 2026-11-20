@@ -45,6 +45,18 @@ const adSummary = (a: any) => ({
   imagen: a.media?.find((m: any) => m.type === "image")?.url ?? a.media?.[0]?.thumb ?? null,
   ficha_meta: a.snapshot_url,
   metricas: a.metrics ?? undefined,
+  // Lo que la IA vio en el video completo (imagen + audio), si ya se analizó
+  video_analizado: a.video_analysis
+    ? {
+        duracion_seg: a.video_analysis.duracion_seg,
+        primeros_3_seg: a.video_analysis.hook_visual,
+        primera_frase: a.video_analysis.hook_audio,
+        escenas: a.video_analysis.escenas,
+        transcripcion: a.video_analysis.transcripcion?.slice(0, 1200),
+        textos_en_pantalla: a.video_analysis.texto_en_pantalla,
+        como_replicarlo: a.video_analysis.como_replicarlo,
+      }
+    : undefined,
 });
 
 async function copyMedia(url: string, key: string): Promise<string> {
@@ -69,7 +81,7 @@ async function generatePedido(pedidoId: string) {
     const { data: items } = await db.from("pedido_items").select("id, position, format, angle, ad_id").eq("pedido_id", pedidoId).order("position");
     const adIds = (items ?? []).map((i) => i.ad_id).filter(Boolean);
     const { data: ads } = adIds.length
-      ? await db.from("ads_view").select("id, page_name, format, body, hook, why_it_works, adaptation, days_active").in("id", adIds)
+      ? await db.from("ads_view").select("id, page_name, format, body, hook, why_it_works, adaptation, days_active, video_analysis").in("id", adIds)
       : { data: [] };
     const byId = new Map((ads ?? []).map((a: any) => [a.id, a]));
     const draft = await draftPedido({

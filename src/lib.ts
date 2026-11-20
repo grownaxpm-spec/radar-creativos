@@ -35,6 +35,26 @@ export type Ad = {
   variations: number | null;
   days_active: number;
   first_seen: string;
+  video_analysis?: VideoAnalysis | null;
+  video_status?: "pending" | "processing" | "done" | "error" | null;
+  video_error?: string | null;
+};
+
+/** Lo que devuelve el análisis del video completo (imagen + audio). */
+export type VideoAnalysis = {
+  duracion_seg: number;
+  transcripcion: string;
+  texto_en_pantalla: string[];
+  hook_visual: string;
+  hook_audio: string;
+  escenas: { desde_seg: number; hasta_seg: number; descripcion: string }[];
+  tipo_creativo: string;
+  quien_habla: string;
+  ritmo: string;
+  audio: string;
+  cta: string;
+  por_que_funciona: string;
+  como_replicarlo: string;
 };
 
 export type Client = {
