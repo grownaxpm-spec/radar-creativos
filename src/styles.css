@@ -280,3 +280,17 @@ ol.scenes .t { font-family: var(--gx-font-mono); color: var(--gx-blue); font-siz
 .hook-track > div { height: 100%; background: #fff; transition: width .1s linear; }
 .hook-time { font-family: var(--gx-font-mono); font-size: 11px; white-space: nowrap; }
 .media.large .clip-badge { bottom: 52px; }
+
+/* ---- Vista grande: entra entera en la pantalla, botones arriba ---- */
+.modal-bg { align-items: center; }
+.modal:not(.narrow) { width: min(1000px, 100%); max-height: calc(100vh - 32px); display: flex; flex-direction: column; padding: 16px 18px; }
+.modal:not(.narrow) .modal-grid { min-height: 0; flex: 1; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); gap: 18px; }
+.modal .media.large { max-height: calc(100vh - 140px); }
+.modal .media.large video, .modal .media.large img { max-height: calc(100vh - 140px); }
+.modal:not(.narrow) .analysis { overflow-y: auto; max-height: calc(100vh - 90px); padding-right: 6px; gap: 10px; }
+.modal-actions { gap: 6px; }
+@media (max-width: 760px) {
+  .modal:not(.narrow) { max-height: none; }
+  .modal:not(.narrow) .analysis { max-height: none; overflow: visible; }
+  .modal .media.large, .modal .media.large video, .modal .media.large img { max-height: 60vh; }
+}

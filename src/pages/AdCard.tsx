@@ -304,6 +304,13 @@ export function AdModal({
               {(ad.variations ?? 1) > 1 && <span className="chip light">×{ad.variations} variaciones</span>}
               {ad.countries.map((c) => <span key={c} className="chip light">{c}</span>)}
             </div>
+            <div className="row wrap modal-actions">
+              <button className={selected ? "small" : "ghost small"} onClick={onSelect}>{selected ? "✓ Referencia" : "Usar como referencia"}</button>
+              {isVideo && (
+                <button className={hookSelected ? "small" : "ghost small"} onClick={onSelectHook}>{hookSelected ? "✓ Hook sugerido" : "Sumar a hooks"}</button>
+              )}
+              <button className="ghost danger small" onClick={onDiscard} title="Lo descarta y pasa al siguiente">✕ Descartar</button>
+            </div>
             {ad.hook && <Block title="Hook">“{ad.hook}”</Block>}
             {ad.why_it_works && <Block title="Por qué funciona">{ad.why_it_works}</Block>}
             {ad.adaptation && <Block title="Cómo adaptarlo al cliente">{ad.adaptation}</Block>}
@@ -314,14 +321,7 @@ export function AdModal({
               Activo desde {ad.start_date ?? "—"}{ad.end_date ? ` hasta ${ad.end_date}` : ""}
               {ad.publisher_platforms.length ? ` · ${ad.publisher_platforms.join(", ")}` : ""}
             </p>
-            <div className="row wrap">
-              <button className={selected ? "" : "ghost"} onClick={onSelect}>{selected ? "✓ Referencia del pedido" : "Usar como referencia"}</button>
-              {isVideo && (
-                <button className={hookSelected ? "" : "ghost"} onClick={onSelectHook}>{hookSelected ? "✓ Hook sugerido" : "Sumar a hooks sugeridos"}</button>
-              )}
-              <button className="ghost danger" onClick={onDiscard}>Descartar</button>
-              <a className="ghost-link" href={ad.snapshot_url} target="_blank" rel="noreferrer">Ver en la Biblioteca de Meta ↗</a>
-            </div>
+            <a className="ghost-link small" href={ad.snapshot_url} target="_blank" rel="noreferrer">Ver en la Biblioteca de Meta ↗</a>
           </div>
         </div>
       </div>

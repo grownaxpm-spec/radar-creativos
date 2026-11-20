@@ -166,7 +166,12 @@ export default function Library({ fixedClientId, hooksOnly }: { fixedClientId?: 
     setDiscards(new Set([...discards, ad.id]));
     if (sel.ids.includes(ad.id)) sel.toggle(ad.id);
     if (sel.hookIds.includes(ad.id)) sel.toggleHook(ad.id);
-    if (open?.id === ad.id) setOpen(null);
+    // Si se descarta desde la vista grande, sigue con el próximo anuncio en vez de cerrar
+    if (open?.id === ad.id) {
+      const flat = groups.flatMap(([, l]) => l);
+      const i = flat.findIndex((a) => a.id === ad.id);
+      setOpen(flat[i + 1] ?? flat[i - 1] ?? null);
+    }
     await supabase.from("discards").upsert({ ad_id: ad.id, client_id: clientId || null }, { onConflict: "ad_id,client_id" });
   }
 
