@@ -168,7 +168,16 @@ export default function SearchPage() {
                 <b>{s.rubro}</b> <span className="muted">· {s.countries.join(", ")}</span>
                 {s.recurring && <span className="chip light">semanal</span>}
                 <div className="muted small">{s.keywords.join(" · ")}</div>
-                {s.status === "running" && s.progress && <div className="note small">{s.progress}</div>}
+                {s.status === "running" && (
+                  <div className="progress-wrap">
+                    <div className="progress-bar">
+                      <div style={{ width: `${s.progress_pct ?? 2}%` }} />
+                    </div>
+                    <div className="small muted">
+                      <b>{s.progress_pct ?? 0}%</b> · {s.progress ?? "Arrancando…"}
+                    </div>
+                  </div>
+                )}
                 {s.status === "pending" && Date.now() - new Date(s.created_at).getTime() > 10 * 60000 && (
                   <div className="small muted">
                     Sigue en cola hace rato. Apretá “Correr ahora” o revisá{" "}
@@ -178,7 +187,10 @@ export default function SearchPage() {
                 {s.error && <div className="error small">{s.error}</div>}
               </div>
               <div className="right">
-                <span className={`status ${s.status}`}>{STATUS[s.status] ?? s.status}</span>
+                <span className={`status ${s.status}`}>
+                  {STATUS[s.status] ?? s.status}
+                  {s.status === "running" && s.progress_pct != null ? ` ${s.progress_pct}%` : ""}
+                </span>
                 {s.status === "done" && <Link to={`/?busqueda=${s.id}`}>{s.total_found} anuncios →</Link>}
                 {s.status !== "running" && (
                   <button className="ghost small" onClick={() => runNow(s.id)}>

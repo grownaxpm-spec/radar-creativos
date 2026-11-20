@@ -223,3 +223,4 @@ grant usage, select on all sequences in schema public to authenticated;
 alter default privileges in schema public grant select, insert, update, delete on tables to authenticated;
 alter default privileges in schema public grant usage, select on sequences to authenticated;
 alter table searches add column if not exists progress text;
+alter table searches add column if not exists progress_pct int;

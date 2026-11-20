@@ -79,6 +79,7 @@ export type Search = {
   max_per_query: number;
   status: string;
   progress: string | null;
+  progress_pct: number | null;
   error: string | null;
   total_found: number;
   recurring: boolean;

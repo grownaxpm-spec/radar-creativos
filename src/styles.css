@@ -140,3 +140,7 @@ button.danger { color: var(--danger); border-color: var(--danger); }
 .insight p { margin: 6px 0 0; }
 .profile-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
 @media (max-width: 700px) { .profile-grid { grid-template-columns: 1fr; } }
+
+.progress-wrap { margin-top: 6px; }
+.progress-bar { height: 8px; border-radius: 99px; background: var(--line); overflow: hidden; margin-bottom: 4px; }
+.progress-bar > div { height: 100%; background: var(--accent); transition: width .6s ease; }

@@ -42,11 +42,13 @@ type Search = {
 
 async function processSearch(s: Search) {
   console.log(`\n▶ Búsqueda ${s.id} — ${s.rubro}`);
-  const progress = (msg: string) => {
-    console.log(`  ${msg}`);
-    return db.from("searches").update({ progress: msg }).eq("id", s.id).then(() => {});
+  // Avance en % por etapas: búsqueda en Meta 5-50, IA 50-75, guardado 75-100
+  const progress = (msg: string, pct: number) => {
+    const p = Math.max(0, Math.min(99, Math.round(pct)));
+    console.log(`  [${p}%] ${msg}`);
+    return db.from("searches").update({ progress: msg, progress_pct: p }).eq("id", s.id).then(() => {});
   };
-  await db.from("searches").update({ status: "running", error: null, progress: "Arrancando…" }).eq("id", s.id);
+  await db.from("searches").update({ status: "running", error: null, progress: "Arrancando…", progress_pct: 2 }).eq("id", s.id);
 
   const keywords = s.keywords.length ? s.keywords : [s.rubro];
   const found = new Map<string, { ad: NormalizedAd; query: string }>();
@@ -63,13 +65,14 @@ async function processSearch(s: Search) {
     keywords.map((q) => ({ q, country, url: libraryUrl(q, country, s.media_type, s.include_inactive ? "all" : "active") })),
   );
   const byUrl = new Map(queries.map((x) => [x.url, x]));
-  await progress(`Buscando en la Biblioteca de Meta (${queries.length} consultas)…`);
+  await progress(`Buscando en la Biblioteca de Meta (${queries.length} consultas)…`, 5);
+  const expected = Math.max(1, queries.length * s.max_per_query);
   let raw: Awaited<ReturnType<typeof runActorBatch>> = [];
   try {
     raw = await runActorBatch(
       queries.map((x) => x.url),
       s.max_per_query,
-      { token: APIFY_TOKEN, actor: ACTOR, onStatus: (m) => void progress(m) },
+      { token: APIFY_TOKEN, actor: ACTOR, onStatus: (m, count) => void progress(m, 5 + Math.min(1, count / expected) * 45) },
     );
   } catch (err) {
     errors.push((err as Error).message);
@@ -91,7 +94,7 @@ async function processSearch(s: Search) {
 
   // IA opcional: filtra ruido, detecta hook y propone adaptación al cliente
   const entries = [...found.values()];
-  if (process.env.ANTHROPIC_API_KEY) await progress(`Analizando ${entries.length} anuncios con IA (hook, por qué funciona, adaptación)…`);
+  if (process.env.ANTHROPIC_API_KEY) await progress(`Analizando ${entries.length} anuncios con IA (hook, por qué funciona, adaptación)…`, 50);
   const tags = await classifyAds(
     s.rubro,
     client,
@@ -105,27 +108,28 @@ async function processSearch(s: Search) {
       variations: ad.variations,
       image_url: ad.media.find((m) => m.type === "image")?.url ?? ad.media[0]?.thumb ?? null,
     })),
+    (i, total) => progress(`Analizando con IA… ${i}/${total} anuncios`, 50 + (i / total) * 25),
   );
   console.log(`  IA: ${tags.size} anuncios analizados`);
 
   let saved = 0;
   let done = 0;
   const keep = entries.filter(({ ad }) => tags.get(ad.ad_archive_id)?.relevant !== false); // la IA descarta lo que no es del rubro
-  await progress(`Guardando ${keep.length} anuncios (videos e imágenes)…`);
+  await progress(`Guardando ${keep.length} anuncios (videos e imágenes)…`, 75);
 
   // De a 6 en paralelo: descargar videos uno por uno es lo más lento
   const queue = [...keep];
   async function worker() {
     for (let item = queue.shift(); item; item = queue.shift()) {
       if (await saveOne(item.ad, item.query)) saved++;
-      if (++done % 15 === 0) await progress(`Guardando anuncios… ${done}/${keep.length}`);
+      if (++done % 10 === 0) await progress(`Guardando anuncios… ${done}/${keep.length}`, 75 + (done / keep.length) * 25);
     }
   }
   await Promise.all(Array.from({ length: 6 }, worker));
 
   await db
     .from("searches")
-    .update({ status: "done", total_found: saved, last_run_at: new Date().toISOString(), progress: null })
+    .update({ status: "done", total_found: saved, last_run_at: new Date().toISOString(), progress: null, progress_pct: 100 })
     .eq("id", s.id);
   console.log(`✔ ${saved} anuncios guardados`);
 

@@ -35,7 +35,7 @@ export function sourceUrlOf(item: Record<string, any>, startUrls: string[]): str
 export async function runActorBatch(
   startUrls: string[],
   limitPerUrl: number,
-  opts: { token: string; actor: string; timeoutSecs?: number; onStatus?: (msg: string) => void },
+  opts: { token: string; actor: string; timeoutSecs?: number; onStatus?: (msg: string, count: number) => void },
 ): Promise<RawItem[]> {
   const actor = opts.actor.replace("/", "~");
   const input = {
@@ -72,7 +72,7 @@ export async function runActorBatch(
     const count = ds?.data?.itemCount ?? 0;
     if (count !== lastCount) {
       lastCount = count;
-      opts.onStatus?.(`Buscando en la Biblioteca de Meta… ${count} anuncios encontrados`);
+      opts.onStatus?.(`Buscando en la Biblioteca de Meta… ${count} anuncios encontrados`, count);
     }
   }
 

@@ -120,6 +120,7 @@ export async function classifyAds(
   rubro: string,
   client: ClientProfile | null,
   ads: AdForAI[],
+  onBatch?: (done: number, total: number) => unknown,
 ): Promise<Map<string, Classification>> {
   const out = new Map<string, Classification>();
   if (!process.env.ANTHROPIC_API_KEY || ads.length === 0) return out;
@@ -128,6 +129,7 @@ export async function classifyAds(
   const sys = system(rubro, client);
 
   for (let i = 0; i < ads.length; i += 8) {
+    await onBatch?.(i, ads.length);
     const batch = ads.slice(i, i + 8);
     const content: Anthropic.ContentBlockParam[] = [];
     for (const a of batch) {
