@@ -100,7 +100,7 @@ async function claim(id: string): Promise<Search | null> {
     .update({ locked_until: until })
     .eq("id", id)
     .eq("status", "running")
-    .or(`locked_until.is.null,locked_until.lt.${now}`)
+    .or(`locked_until.is.null,locked_until.lt."${now}"`)
     .select("*")
     .maybeSingle();
   return data as Search | null;
@@ -298,12 +298,16 @@ async function storeMedia(adId: string, media: MediaItem[]): Promise<MediaItem[]
 async function tickAll(t0: number) {
   // Arrancar pendientes y semanales vencidas
   const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString();
-  const { data: toStart } = await db
+  const { data: pending, error: e1 } = await db.from("searches").select("*").eq("status", "pending").limit(5);
+  const { data: weekly, error: e2 } = await db
     .from("searches")
     .select("*")
-    .or(`status.eq.pending,and(recurring.eq.true,status.eq.done,last_run_at.lt.${weekAgo})`)
+    .eq("recurring", true)
+    .eq("status", "done")
+    .lt("last_run_at", weekAgo)
     .limit(5);
-  for (const s of (toStart ?? []) as Search[]) await start(s);
+  if (e1 || e2) console.error("tickAll", e1?.message, e2?.message);
+  for (const s of [...(pending ?? []), ...(weekly ?? [])] as Search[]) await start(s);
 
   const { data: running } = await db.from("searches").select("id").eq("status", "running");
   const results: Record<string, string> = {};
