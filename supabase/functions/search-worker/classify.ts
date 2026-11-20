@@ -79,18 +79,25 @@ function toBase64(bytes: Uint8Array): string {
   return btoa(s);
 }
 
+export function sniffImage(b: Uint8Array): "image/jpeg" | "image/png" | "image/gif" | "image/webp" | null {
+  if (b[0] === 0xff && b[1] === 0xd8) return "image/jpeg";
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return "image/png";
+  if (b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46) return "image/gif";
+  if (b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return "image/webp";
+  return null;
+}
+
 async function imageBlock(url: string | null | undefined): Promise<Anthropic.ImageBlockParam | null> {
   if (!url) return null;
   try {
     const res = await fetch(url);
-    const type = res.headers.get("content-type") ?? "";
-    if (!res.ok || !/^image\/(jpeg|png|webp|gif)/.test(type)) return null;
+    if (!res.ok) return null;
     const bytes = new Uint8Array(await res.arrayBuffer());
-    if (bytes.length > 1_500_000) return null; // imágenes livianas: menos memoria y costo
-    return {
-      type: "image",
-      source: { type: "base64", media_type: type.split(";")[0] as "image/jpeg", data: toBase64(bytes) },
-    };
+    if (bytes.length > 1_500_000) return null;
+    // El tipo se detecta por los bytes: Meta a veces marca como JPG imágenes que son PNG
+    const media_type = sniffImage(bytes);
+    if (!media_type) return null;
+    return { type: "image", source: { type: "base64", media_type, data: toBase64(bytes) } };
   } catch {
     return null;
   }
@@ -158,14 +165,23 @@ export async function classifyAds(
     }
     content.push({ type: "text", text: `Analizá los ${batch.length} anuncios de arriba (cada imagen va después de su anuncio).` });
 
-    try {
-      const response = await anthropic.messages.parse({
+    const ask = (blocks: Anthropic.ContentBlockParam[]) =>
+      anthropic.messages.parse({
         model,
         max_tokens: 8000,
         output_config: { effort: "low", format: zodOutputFormat(Result) },
         system: sys,
-        messages: [{ role: "user", content }],
+        messages: [{ role: "user", content: blocks }],
       });
+    try {
+      let response;
+      try {
+        response = await ask(content);
+      } catch (err) {
+        // Si una imagen rompe el lote, lo reintentamos solo con texto
+        if (err instanceof Anthropic.BadRequestError) response = await ask(content.filter((c) => c.type === "text"));
+        else throw err;
+      }
       if (response.stop_reason === "refusal") continue;
       for (const c of response.parsed_output?.ads ?? []) out.set(c.id, c);
     } catch (err) {

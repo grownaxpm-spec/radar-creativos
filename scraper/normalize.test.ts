@@ -77,3 +77,10 @@ test("filtro de rubro descarta apps de idiomas y deja calzado", () => {
   assert.ok(!matchesRubro({ ...base, body: "Aprendé inglés leyendo 10 minutos por día", page_name: "EWA: Learn Languages" }, roots));
   assert.ok(!matchesRubro({ ...base, body: "Nunca había estado tan cerca de ella", page_name: "Caliente-Romance" }, roots));
 });
+
+import { sniffImage } from "./classify.ts";
+test("detecta el tipo real de imagen por sus bytes", () => {
+  assert.equal(sniffImage(new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0, 0, 0, 0, 0, 0, 0, 0])), "image/png");
+  assert.equal(sniffImage(new Uint8Array([0xff, 0xd8, 0xff, 0, 0, 0, 0, 0, 0, 0, 0, 0])), "image/jpeg");
+  assert.equal(sniffImage(new Uint8Array([0x3c, 0x68, 0x74, 0x6d, 0, 0, 0, 0, 0, 0, 0, 0])), null);
+});
