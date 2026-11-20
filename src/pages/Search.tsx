@@ -23,7 +23,7 @@ export default function SearchPage() {
   useEffect(() => {
     supabase.from("clients").select("*").order("name").then(({ data }) => setClients(data ?? []));
     load();
-    const t = setInterval(load, 15000);
+    const t = setInterval(load, 8000);
     return () => clearInterval(t);
   }, []);
 
@@ -168,6 +168,13 @@ export default function SearchPage() {
                 <b>{s.rubro}</b> <span className="muted">· {s.countries.join(", ")}</span>
                 {s.recurring && <span className="chip light">semanal</span>}
                 <div className="muted small">{s.keywords.join(" · ")}</div>
+                {s.status === "running" && s.progress && <div className="note small">{s.progress}</div>}
+                {s.status === "pending" && Date.now() - new Date(s.created_at).getTime() > 10 * 60000 && (
+                  <div className="small muted">
+                    Sigue en cola hace rato. Apretá “Correr ahora” o revisá{" "}
+                    <a href="https://github.com/grownaxpm-spec/radar-creativos/actions" target="_blank" rel="noreferrer">GitHub Actions ↗</a>
+                  </div>
+                )}
                 {s.error && <div className="error small">{s.error}</div>}
               </div>
               <div className="right">

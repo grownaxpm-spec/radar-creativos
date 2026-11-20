@@ -78,6 +78,7 @@ export type Search = {
   media_type: string;
   max_per_query: number;
   status: string;
+  progress: string | null;
   error: string | null;
   total_found: number;
   recurring: boolean;
