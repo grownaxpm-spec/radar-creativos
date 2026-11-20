@@ -12,6 +12,7 @@ import { createClient } from "@supabase/supabase-js";
 import { daysActive, libraryUrl, matchesRubro, normalizeAd, rubroRoots, winnerScore, type MediaItem, type NormalizedAd } from "./normalize.ts";
 import { getItems, getRun, sourceUrlOf, startRun } from "./apify.ts";
 import { classifyAds, type ClientProfile } from "./classify.ts";
+import { draftPedido } from "./pedido.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -19,6 +20,7 @@ const APIFY_TOKEN = Deno.env.get("APIFY_TOKEN");
 const ACTOR = Deno.env.get("APIFY_ACTOR") || "apify/facebook-ads-scraper";
 const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY");
 const CLAUDE_MODEL = Deno.env.get("CLAUDE_MODEL") || undefined;
+const PEDIDO_MODEL = Deno.env.get("CLAUDE_PEDIDO_MODEL") || "claude-opus-5-5";
 const SELF_URL = `${SUPABASE_URL}/functions/v1/search-worker`;
 const CHUNK = 8; // anuncios por tanda (chico: el servidor de Supabase tiene poca memoria)
 const BUDGET_MS = 60_000; // una tanda por invocación y seguimos en otra
@@ -359,6 +361,70 @@ async function reanalyze(clientId: string | null): Promise<{ analyzed: number; r
   return { analyzed, remaining: analyzed === 0 ? 0 : (count ?? 0) };
 }
 
+// Escribe el pedido con IA y lo guarda (pieza por pieza, más hooks sugeridos y cómo se entrega)
+async function generatePedido(pedidoId: string) {
+  const setP = (patch: Record<string, unknown>) => db.from("pedidos").update(patch).eq("id", pedidoId);
+  try {
+    if (!ANTHROPIC_KEY) throw new Error("Falta el secreto ANTHROPIC_API_KEY en Supabase.");
+    const { data: p } = await db.from("pedidos").select("*").eq("id", pedidoId).single();
+    if (!p) throw new Error("No existe el pedido");
+    const { data: client } = p.client_id ? await db.from("clients").select("*").eq("id", p.client_id).maybeSingle() : { data: null };
+    const { data: items } = await db.from("pedido_items").select("id, position, format, angle, ad_id").eq("pedido_id", pedidoId).order("position");
+    const adIds = (items ?? []).map((i) => i.ad_id).filter(Boolean);
+    const { data: ads } = adIds.length
+      ? await db.from("ads_view").select("id, page_name, format, body, hook, why_it_works, adaptation, days_active").in("id", adIds)
+      : { data: [] };
+    const byId = new Map((ads ?? []).map((a: any) => [a.id, a]));
+    const draft = await draftPedido({
+      apiKey: ANTHROPIC_KEY,
+      model: PEDIDO_MODEL,
+      client,
+      pedido: p,
+      items: (items ?? []).map((i) => ({ position: i.position, format: i.format, angle: i.angle, ref: i.ad_id ? (byId.get(i.ad_id) ?? null) : null })),
+    });
+    const emptyToNull = (v: string) => (v && v.trim() ? v.trim() : null);
+    for (const it of items ?? []) {
+      const d = draft.pieces.find((x) => x.position === it.position);
+      if (!d) continue;
+      await db
+        .from("pedido_items")
+        .update({
+          code: emptyToNull(d.code),
+          title: emptyToNull(d.title),
+          piece_name: emptyToNull(d.title),
+          group_name: emptyToNull(d.group_name),
+          angle: emptyToNull(d.angle),
+          funnel: d.funnel,
+          creative_type: emptyToNull(d.creative_type),
+          format: emptyToNull(d.format),
+          ref_beats: emptyToNull(d.ref_beats),
+          hook: emptyToNull(d.hook),
+          development: emptyToNull(d.development),
+          closing: emptyToNull(d.closing),
+          scene: emptyToNull(d.scene),
+          headline: emptyToNull(d.headline),
+          subhead: emptyToNull(d.subhead),
+          recording_tips: emptyToNull(d.recording_tips),
+          duration: emptyToNull(d.duration),
+          adaptations: emptyToNull(d.adaptations),
+        })
+        .eq("id", it.id);
+    }
+    await setP({
+      intro: emptyToNull(draft.intro),
+      refs_note: emptyToNull(draft.refs_note),
+      hooks: draft.hooks,
+      specs: draft.specs.filter((x) => x.items.length),
+      before_notes: draft.before_notes,
+      ai_status: "done",
+      ai_error: null,
+    });
+  } catch (err) {
+    console.error("generatePedido", err);
+    await setP({ ai_status: "error", ai_error: (err as Error).message });
+  }
+}
+
 async function tickAll(t0: number) {
   // Arrancar pendientes y semanales vencidas
   const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString();
@@ -422,6 +488,18 @@ Deno.serve(async (req) => {
   }
 
   // tick: no cambia nada que no esté ya pedido, así que puede llamarlo el cron, el webhook de Apify o la app
+  if (action === "draft_pedido") {
+    if (!(await isTeam(req.headers.get("authorization")))) return json({ error: "No autorizado" }, 403);
+    const pedidoId: string | undefined = body.pedido_id;
+    if (!pedidoId || !/^[0-9a-f-]{36}$/i.test(pedidoId)) return json({ error: "pedido_id inválido" }, 400);
+    await db.from("pedidos").update({ ai_status: "generating", ai_error: null }).eq("id", pedidoId);
+    // Corre en segundo plano: la app consulta el estado hasta que termine
+    const rt = (globalThis as any).EdgeRuntime;
+    if (rt?.waitUntil) rt.waitUntil(generatePedido(pedidoId));
+    else await generatePedido(pedidoId);
+    return json({ ok: true, status: "generating" });
+  }
+
   if (action === "reanalyze") {
     const clientId: string | null = body.client_id ?? url.searchParams.get("client_id");
     const r = await reanalyze(clientId);

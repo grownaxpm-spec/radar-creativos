@@ -96,7 +96,27 @@ export type Pedido = {
   artifact_url: string | null;
   drive_url: string | null;
   created_at: string;
+  kind: "aon" | "evento";
+  event_name: string | null;
+  event_date: string | null;
+  period: string | null;
+  platform: string;
+  detail_level: DetailLevel;
+  deadline: string | null;
+  intro: string | null;
+  refs_note: string | null;
+  hooks: { hook: string; tipo?: string; por_que?: string }[];
+  specs: { titulo: string; items: string[] }[];
+  before_notes: string[];
 };
+
+/** Qué tan detallado va el pedido: algunos clientes quieren solo guion y referencia, otros cómo grabarlo. */
+export type DetailLevel = "guion" | "grabacion" | "completo";
+export const DETAIL_LEVELS: [DetailLevel, string, string][] = [
+  ["guion", "Solo guion + referencia", "Hook, desarrollo y cierre al lado de cada referencia."],
+  ["grabacion", "Guion + cómo grabarlo", "Suma sugerencias de grabación: planos, lugar, ritmo, duración."],
+  ["completo", "Completo (estructura madre)", "Ángulo, etapa del embudo, tipo de creativo, formato, guion, grabación, adaptaciones, hooks sugeridos y cómo se entrega."],
+];
 
 export type PedidoItem = {
   id?: string;
@@ -108,7 +128,39 @@ export type PedidoItem = {
   angle: string | null;
   script: string | null;
   notes: string | null;
+  code: string | null;
+  title: string | null;
+  group_name: string | null;
+  funnel: "fria" | "caliente" | null;
+  creative_type: string | null;
+  hook: string | null;
+  development: string | null;
+  closing: string | null;
+  scene: string | null;
+  headline: string | null;
+  subhead: string | null;
+  recording_tips: string | null;
+  duration: string | null;
+  adaptations: string | null;
+  ref_beats: string | null;
 };
+
+export const ANGLES = [
+  "Precio / promo",
+  "Calidad / materiales",
+  "Comodidad / calce",
+  "Estilo / outfit",
+  "Versatilidad",
+  "Durabilidad",
+  "Regalo",
+  "Prueba social",
+  "Fabricación / industria nacional",
+  "Envío / cambios / garantía",
+  "Lanzamiento / novedad",
+  "Otro",
+];
+
+export const APP_NAME = "Pedido de Creativos";
 
 export const COUNTRIES: [string, string][] = [
   ["AR", "Argentina"],

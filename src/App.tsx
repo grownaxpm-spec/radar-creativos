@@ -1,18 +1,21 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { NavLink, Route, Routes, useLocation } from "react-router-dom";
 import type { Session } from "@supabase/supabase-js";
-import { supabase } from "./lib.ts";
+import { APP_NAME, supabase } from "./lib.ts";
+import Home from "./pages/Home.tsx";
 import Library from "./pages/Library.tsx";
 import SearchPage from "./pages/Search.tsx";
+import Searches from "./pages/Searches.tsx";
 import Clients from "./pages/Clients.tsx";
 import Pedidos from "./pages/Pedidos.tsx";
 import PedidoEditor from "./pages/PedidoEditor.tsx";
 import PedidoPublic from "./pages/PedidoPublic.tsx";
+import RefsPublic from "./pages/RefsPublic.tsx";
 import Login from "./pages/Login.tsx";
 
-// ---- Selección de anuncios para armar un pedido (persiste en el navegador) ----
-type Sel = { ids: string[]; toggle: (id: string) => void; clear: () => void };
-const SelectionCtx = createContext<Sel>({ ids: [], toggle: () => {}, clear: () => {} });
+// ---- Selección de anuncios para armar un pedido o compartir referencias (persiste en el navegador) ----
+type Sel = { ids: string[]; toggle: (id: string) => void; clear: () => void; set: (ids: string[]) => void };
+const SelectionCtx = createContext<Sel>({ ids: [], toggle: () => {}, clear: () => {}, set: () => {} });
 export const useSelection = () => useContext(SelectionCtx);
 
 function loadSel(): string[] {
@@ -42,11 +45,12 @@ export default function App() {
     }
   }, [ids]);
 
-  // El link del pedido para el cliente no pide login
-  if (location.pathname.startsWith("/p/")) {
+  // Los links para el cliente (pedido y referencias) no piden login
+  if (location.pathname.startsWith("/p/") || location.pathname.startsWith("/r/")) {
     return (
       <Routes>
         <Route path="/p/:slug" element={<PedidoPublic />} />
+        <Route path="/r/:slug" element={<RefsPublic />} />
       </Routes>
     );
   }
@@ -58,19 +62,19 @@ export default function App() {
     ids,
     toggle: (id) => setIds((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id])),
     clear: () => setIds([]),
+    set: setIds,
   };
 
   return (
     <SelectionCtx.Provider value={sel}>
       <header className="topbar">
-        <div className="brand">
-          <span className="dot" /> Radar de Creativos
-        </div>
+        <NavLink to="/" className="brand">
+          <span className="dot" /> {APP_NAME}
+        </NavLink>
         <nav>
-          <NavLink to="/" end>
-            Biblioteca
-          </NavLink>
-          <NavLink to="/buscar">Buscar</NavLink>
+          <NavLink to="/" end>Inicio</NavLink>
+          <NavLink to="/busquedas">Historial de búsquedas</NavLink>
+          <NavLink to="/biblioteca">Biblioteca</NavLink>
           <NavLink to="/pedidos">Pedidos</NavLink>
           <NavLink to="/clientes">Clientes</NavLink>
         </nav>
@@ -80,8 +84,10 @@ export default function App() {
       </header>
       <main>
         <Routes>
-          <Route path="/" element={<Library />} />
+          <Route path="/" element={<Home />} />
           <Route path="/buscar" element={<SearchPage />} />
+          <Route path="/busquedas" element={<Searches />} />
+          <Route path="/biblioteca" element={<Library />} />
           <Route path="/clientes" element={<Clients />} />
           <Route path="/pedidos" element={<Pedidos />} />
           <Route path="/pedidos/:id" element={<PedidoEditor />} />

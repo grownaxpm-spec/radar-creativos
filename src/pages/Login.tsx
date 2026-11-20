@@ -20,7 +20,7 @@ export default function Login() {
   return (
     <div className="login">
       <form className="card" onSubmit={send}>
-        <h1>Radar de Creativos</h1>
+        <h1>Pedido de Creativos</h1>
         <p className="muted">Referencias de anuncios del mercado para armar pedidos de piezas.</p>
         {sent ? (
           <p>Te mandamos un link a <b>{email}</b>. Abrilo para entrar.</p>

@@ -1,52 +1,88 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { HOOK_TYPES, supabase, type Ad, type Client, type Search } from "../lib.ts";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { ANGLES, HOOK_TYPES, formatLabel, supabase, type Ad, type Client, type Search } from "../lib.ts";
 import { useSelection } from "../App.tsx";
-import AdCard from "./AdCard.tsx";
+import AdCard, { AdModal } from "./AdCard.tsx";
+import PedidoDialog from "./PedidoDialog.tsx";
 
-const PAGE = 60;
+const PAGE = 90;
+type GroupBy = "" | "angle" | "page_name" | "hook_type" | "format";
+const GROUPS: [GroupBy, string][] = [
+  ["", "Sin agrupar"],
+  ["angle", "Por ángulo publicitario"],
+  ["page_name", "Por marca"],
+  ["hook_type", "Por tipo de hook"],
+  ["format", "Por formato"],
+];
 
 export default function Library() {
   const nav = useNavigate();
   const sel = useSelection();
+  const [params, setParams] = useSearchParams();
   const [ads, setAds] = useState<Ad[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [searches, setSearches] = useState<Search[]>([]);
   const [saves, setSaves] = useState<Set<string>>(new Set());
+  const [discards, setDiscards] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [more, setMore] = useState(false);
-  const [creating, setCreating] = useState(false);
+  const [open, setOpen] = useState<Ad | null>(null);
+  const [dialog, setDialog] = useState(false);
+  const [shared, setShared] = useState<string | null>(null);
 
-  // filtros
-  const [searchId, setSearchId] = useState(() => new URLSearchParams(location.search).get("busqueda") ?? "");
-  const [clientId, setClientId] = useState("");
+  // filtros (la vista y la búsqueda quedan en la URL para poder compartir el link)
+  const hookMode = params.get("vista") === "hooks";
+  const searchId = params.get("busqueda") ?? "";
+  const [clientId, setClientId] = useState(() => {
+    try {
+      return localStorage.getItem("cliente") ?? "";
+    } catch {
+      return "";
+    }
+  });
   const [onlySaved, setOnlySaved] = useState(false);
   const [format, setFormat] = useState("");
-  const [country, setCountry] = useState("");
-  const [order, setOrder] = useState<"score" | "days" | "recent">("score");
+  const [angle, setAngle] = useState("");
   const [hookType, setHookType] = useState("");
+  const [order, setOrder] = useState<"score" | "days" | "recent">("score");
+  const [groupBy, setGroupBy] = useState<GroupBy>("");
   const [q, setQ] = useState("");
   const [page, setPage] = useState(0);
 
+  const setParam = (k: string, v: string) => {
+    const p = new URLSearchParams(params);
+    if (v) p.set(k, v);
+    else p.delete(k);
+    setParams(p, { replace: true });
+  };
+
   useEffect(() => {
-    supabase.from("clients").select("*").order("name").then(({ data }) => setClients(data ?? []));
+    supabase.from("clients").select("*").order("name").then(({ data }) => setClients((data as Client[]) ?? []));
     supabase.from("searches").select("*").order("created_at", { ascending: false }).limit(50).then(({ data }) => setSearches(data ?? []));
   }, []);
 
-  // guardados del cliente elegido (o favoritos generales)
+  // Cliente activo: define favoritos y descartados
   useEffect(() => {
-    let query = supabase.from("saves").select("ad_id");
-    query = clientId ? query.eq("client_id", clientId) : query.is("client_id", null);
-    query.then(({ data }) => setSaves(new Set((data ?? []).map((r) => r.ad_id))));
+    try {
+      localStorage.setItem("cliente", clientId);
+    } catch {
+      /* sin almacenamiento */
+    }
+    let sq = supabase.from("saves").select("ad_id");
+    sq = clientId ? sq.eq("client_id", clientId) : sq.is("client_id", null);
+    sq.then(({ data }) => setSaves(new Set((data ?? []).map((r) => r.ad_id))));
+    // Los descartes generales valen para todos; los del cliente, solo para ese cliente
+    let dq = supabase.from("discards").select("ad_id, client_id");
+    dq = clientId ? dq.or(`client_id.is.null,client_id.eq.${clientId}`) : dq.is("client_id", null);
+    dq.then(({ data }) => setDiscards(new Set((data ?? []).map((r) => r.ad_id))));
   }, [clientId]);
 
-  useEffect(() => setPage(0), [searchId, clientId, onlySaved, format, country, order, q, hookType]);
+  useEffect(() => setPage(0), [searchId, clientId, onlySaved, format, angle, hookType, order, q, hookMode]);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoading(true);
-      // "Solo guardados" lee de saved_ads; una búsqueda puntual, de search_ads; si no, de toda la biblioteca.
       let query = onlySaved
         ? supabase.from("saved_ads").select("*")
         : searchId
@@ -58,10 +94,11 @@ export default function Library() {
         const { data } = await supabase.from("search_results").select("ad_id").eq("search_id", searchId);
         query = query.in("id", (data ?? []).map((r) => r.ad_id));
       }
-      if (format) query = query.eq("format", format);
+      if (hookMode) query = query.eq("format", "video").not("hook", "is", null);
+      else if (format) query = query.eq("format", format);
+      if (angle) query = query.eq("angle", angle);
       if (hookType) query = query.eq("hook_type", hookType);
-      if (country) query = query.contains("countries", [country]);
-      if (q.trim()) query = query.or(`body.ilike.%${q.trim()}%,page_name.ilike.%${q.trim()}%`);
+      if (q.trim()) query = query.or(`body.ilike.%${q.trim()}%,page_name.ilike.%${q.trim()}%,hook.ilike.%${q.trim()}%`);
       query =
         order === "score"
           ? query.order("score", { ascending: false, nullsFirst: false }).order("days_active", { ascending: false })
@@ -78,12 +115,23 @@ export default function Library() {
     return () => {
       cancelled = true;
     };
-  }, [searchId, onlySaved, clientId, onlySaved ? saves : null, format, country, order, q, page, hookType]);
+  }, [searchId, onlySaved, clientId, onlySaved ? saves : null, format, angle, hookType, order, q, page, hookMode]);
+
+  const visible = useMemo(() => ads.filter((a) => !discards.has(a.id)), [ads, discards]);
+  const groups = useMemo(() => {
+    if (!groupBy) return [["", visible]] as [string, Ad[]][];
+    const m = new Map<string, Ad[]>();
+    for (const a of visible) {
+      const raw = (a as Record<string, any>)[groupBy] as string | null;
+      const k = groupBy === "format" && raw ? formatLabel(raw) : raw || "Sin clasificar";
+      m.set(k, [...(m.get(k) ?? []), a]);
+    }
+    return [...m.entries()].sort((x, y) => y[1].length - x[1].length);
+  }, [visible, groupBy]);
 
   async function toggleSave(ad: Ad) {
-    const has = saves.has(ad.id);
     const next = new Set(saves);
-    if (has) {
+    if (saves.has(ad.id)) {
       next.delete(ad.id);
       let del = supabase.from("saves").delete().eq("ad_id", ad.id);
       del = clientId ? del.eq("client_id", clientId) : del.is("client_id", null);
@@ -95,33 +143,28 @@ export default function Library() {
     setSaves(next);
   }
 
-  async function createPedido() {
-    setCreating(true);
+  async function discard(ad: Ad) {
+    setDiscards(new Set([...discards, ad.id]));
+    if (sel.ids.includes(ad.id)) sel.toggle(ad.id);
+    if (open?.id === ad.id) setOpen(null);
+    await supabase.from("discards").upsert({ ad_id: ad.id, client_id: clientId || null }, { onConflict: "ad_id,client_id" });
+  }
+
+  async function shareRefs() {
     const client = clients.find((c) => c.id === clientId);
-    const { data: p, error } = await supabase
-      .from("pedidos")
-      .insert({ title: `Pedido de piezas${client ? ` — ${client.name}` : ""}`, client_id: clientId || null })
-      .select()
+    const { data, error } = await supabase
+      .from("reference_sets")
+      .insert({ title: `Referencias${client ? ` para ${client.name}` : ""}`, client_id: clientId || null, ad_ids: sel.ids })
+      .select("slug")
       .single();
-    if (error || !p) {
-      alert(error?.message ?? "No pude crear el pedido");
-      setCreating(false);
-      return;
+    if (error || !data) return alert(error?.message ?? "No pude crear el link");
+    const url = `${window.location.origin}/r/${data.slug}`;
+    setShared(url);
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      /* el link queda visible igual */
     }
-    const { data: selAds } = await supabase.from("ads").select("id, format, angle").in("id", sel.ids);
-    const byId = new Map((selAds ?? []).map((a) => [a.id, a]));
-    await supabase.from("pedido_items").insert(
-      sel.ids.map((id, i) => ({
-        pedido_id: p.id,
-        ad_id: id,
-        position: i + 1,
-        piece_name: `Pieza ${i + 1}`,
-        format: byId.get(id)?.format === "video" ? "Reel 9:16" : "Feed 4:5",
-        angle: byId.get(id)?.angle ?? null,
-      })),
-    );
-    sel.clear();
-    nav(`/pedidos/${p.id}`);
   }
 
   const countriesSeen = useMemo(() => [...new Set(ads.flatMap((a) => a.countries))].sort(), [ads]);
@@ -129,78 +172,109 @@ export default function Library() {
 
   return (
     <div>
+      <div className="view-tabs">
+        <button className={!hookMode ? "" : "ghost"} onClick={() => setParam("vista", "")}>Anuncios</button>
+        <button className={hookMode ? "" : "ghost"} onClick={() => setParam("vista", "hooks")}>Solo hooks (10 s)</button>
+        <span className="muted small">
+          {hookMode ? "Cada video se reproduce solo en sus primeros 10 segundos, con el hook escrito abajo." : "Hacé clic en un anuncio para verlo en grande con el análisis."}
+        </span>
+      </div>
+
       <div className="filters">
-        <select value={searchId} onChange={(e) => setSearchId(e.target.value)}>
+        <select value={clientId} onChange={(e) => setClientId(e.target.value)} title="Cliente activo: define favoritos y descartados">
+          <option value="">Sin cliente (general)</option>
+          {clients.map((c) => (
+            <option key={c.id} value={c.id}>Trabajando para {c.name}</option>
+          ))}
+        </select>
+        <select value={searchId} onChange={(e) => setParam("busqueda", e.target.value)}>
           <option value="">Todas las búsquedas</option>
           {searches.map((s) => (
             <option key={s.id} value={s.id}>
-              {s.rubro} · {s.countries.join(", ")} ({s.total_found})
+              {new Date(s.created_at).toLocaleDateString("es-AR")} · {s.countries.join(", ")} ({s.total_found})
             </option>
           ))}
         </select>
-        <select value={clientId} onChange={(e) => setClientId(e.target.value)} title="Al guardar con ☆ se guarda en la biblioteca de este cliente">
-          <option value="">Favoritos generales</option>
-          {clients.map((c) => (
-            <option key={c.id} value={c.id}>
-              Biblioteca de {c.name}
-            </option>
-          ))}
+        <select value={groupBy} onChange={(e) => setGroupBy(e.target.value as GroupBy)}>
+          {GROUPS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </select>
-        <label className="check">
-          <input type="checkbox" checked={onlySaved} onChange={(e) => setOnlySaved(e.target.checked)} /> Solo guardados
-        </label>
-        <select value={format} onChange={(e) => setFormat(e.target.value)}>
-          <option value="">Video e imagen</option>
-          <option value="video">Solo video</option>
-          <option value="image">Solo imagen</option>
-          <option value="carousel">Solo carrusel</option>
-        </select>
-        <select value={country} onChange={(e) => setCountry(e.target.value)}>
-          <option value="">Todos los países</option>
-          {countriesSeen.map((c) => (
-            <option key={c}>{c}</option>
-          ))}
+        <select value={angle} onChange={(e) => setAngle(e.target.value)}>
+          <option value="">Todos los ángulos</option>
+          {ANGLES.map((a) => <option key={a}>{a}</option>)}
         </select>
         <select value={hookType} onChange={(e) => setHookType(e.target.value)}>
           <option value="">Todos los hooks</option>
-          {HOOK_TYPES.map((h) => (
-            <option key={h}>{h}</option>
-          ))}
+          {HOOK_TYPES.map((h) => <option key={h}>{h}</option>)}
         </select>
+        {!hookMode && (
+          <select value={format} onChange={(e) => setFormat(e.target.value)}>
+            <option value="">Video, imagen y carrusel</option>
+            <option value="video">Solo video</option>
+            <option value="image">Solo imagen</option>
+            <option value="carousel">Solo carrusel</option>
+          </select>
+        )}
         <select value={order} onChange={(e) => setOrder(e.target.value as "score" | "days" | "recent")}>
           <option value="score">Mejor puntaje primero</option>
           <option value="days">Más días activo primero</option>
           <option value="recent">Más nuevos primero</option>
         </select>
-        <input placeholder="Buscar en el texto o la marca…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <label className="check">
+          <input type="checkbox" checked={onlySaved} onChange={(e) => setOnlySaved(e.target.checked)} /> Solo favoritos
+        </label>
+        <input placeholder="Buscar marca, texto o hook…" value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
+      {countriesSeen.length > 1 && <p className="muted small">Países: {countriesSeen.join(", ")}</p>}
 
-      {!loading && ads.length === 0 && (
+      {!loading && visible.length === 0 && (
         <div className="empty-state">
-          <p>Todavía no hay anuncios acá.</p>
+          <p>{hookMode ? "Todavía no hay hooks en video para estos filtros." : "Todavía no hay anuncios acá."}</p>
           <button onClick={() => nav("/buscar")}>Empezar una búsqueda</button>
         </div>
       )}
 
-      <div className="grid">
-        {ads.map((ad) => (
-          <AdCard
-            key={ad.id}
-            ad={ad}
-            selected={sel.ids.includes(ad.id)}
-            saved={saves.has(ad.id)}
-            onSelect={() => sel.toggle(ad.id)}
-            onSave={() => toggleSave(ad)}
-          />
-        ))}
-      </div>
+      {groups.map(([name, list]) => (
+        <section key={name || "all"} className="lib-group">
+          {groupBy && (
+            <div className="row between group-head">
+              <h3>{name} <span className="muted">({list.length})</span></h3>
+              <button className="ghost small" onClick={() => sel.set([...new Set([...sel.ids, ...list.map((a) => a.id)])])}>
+                Elegir todos
+              </button>
+            </div>
+          )}
+          <div className={`grid ${hookMode ? "hooks" : ""}`}>
+            {list.map((ad) => (
+              <AdCard
+                key={ad.id}
+                ad={ad}
+                hookMode={hookMode}
+                selected={sel.ids.includes(ad.id)}
+                saved={saves.has(ad.id)}
+                onSelect={() => sel.toggle(ad.id)}
+                onSave={() => toggleSave(ad)}
+                onDiscard={() => discard(ad)}
+                onOpen={() => setOpen(ad)}
+              />
+            ))}
+          </div>
+        </section>
+      ))}
       {loading && <p className="center muted">Cargando…</p>}
       {more && !loading && (
         <div className="center">
-          <button className="ghost" onClick={() => setPage(page + 1)}>
-            Cargar más
-          </button>
+          <button className="ghost" onClick={() => setPage(page + 1)}>Cargar más</button>
         </div>
+      )}
+
+      {open && (
+        <AdModal
+          ad={open}
+          selected={sel.ids.includes(open.id)}
+          onClose={() => setOpen(null)}
+          onSelect={() => sel.toggle(open.id)}
+          onDiscard={() => discard(open)}
+        />
       )}
 
       {sel.ids.length > 0 && (
@@ -208,14 +282,18 @@ export default function Library() {
           <span>
             <b>{sel.ids.length}</b> elegidos{clientName ? ` para ${clientName}` : ""}
           </span>
-          <button className="ghost small" onClick={sel.clear}>
-            Limpiar
-          </button>
-          <button onClick={createPedido} disabled={creating}>
-            {creating ? "Creando…" : "Crear pedido de piezas →"}
-          </button>
+          <button className="ghost small" onClick={() => { sel.clear(); setShared(null); }}>Limpiar</button>
+          <button className="ghost" onClick={shareRefs}>Compartir referencias</button>
+          <button onClick={() => setDialog(true)}>Crear pedido de creativos →</button>
+          {shared && (
+            <div className="shared">
+              Link copiado: <a href={shared} target="_blank" rel="noreferrer">{shared}</a>
+            </div>
+          )}
         </div>
       )}
+
+      {dialog && <PedidoDialog clients={clients} clientId={clientId} adIds={sel.ids} onClose={() => setDialog(false)} />}
     </div>
   );
 }

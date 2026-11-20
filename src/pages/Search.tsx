@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { COUNTRIES, supabase, type Client, type Search } from "../lib.ts";
+import { useNavigate } from "react-router-dom";
+import { kickSearch } from "./SearchList.tsx";
+import { COUNTRIES, supabase, type Client } from "../lib.ts";
 
-const STATUS: Record<string, string> = { pending: "En cola", running: "Buscando…", done: "Lista", error: "Error" };
 
 export default function SearchPage() {
   const [clients, setClients] = useState<Client[]>([]);
-  const [list, setList] = useState<Search[]>([]);
+  const nav = useNavigate();
   const [clientId, setClientId] = useState("");
   const [rubro, setRubro] = useState("");
   const [keywords, setKeywords] = useState("");
@@ -17,34 +17,8 @@ export default function SearchPage() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
-  const load = () =>
-    supabase
-      .from("searches")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(30)
-      .then(({ data }) => {
-        setList(data ?? []);
-        // Mientras mirás, empujamos al robot para que el avance sea más rápido (igual corre solo cada minuto)
-        for (const s of data ?? []) if (s.status === "running") void supabase.functions.invoke("search-worker", { body: { action: "tick", search_id: s.id } });
-      });
-
-  // Arranca la búsqueda en el robot de Supabase
-  async function kick(id: string): Promise<string | null> {
-    const { data, error } = await supabase.functions.invoke("search-worker", { body: { action: "start", search_id: id } });
-    if (error) {
-      const ctx = (error as { context?: Response }).context;
-      const body = ctx ? await ctx.json().catch(() => null) : null;
-      return body?.error ?? error.message;
-    }
-    return data?.ok === false ? (data.error ?? "No pude arrancarla") : null;
-  }
-
   useEffect(() => {
     supabase.from("clients").select("*").order("name").then(({ data }) => setClients(data ?? []));
-    load();
-    const t = setInterval(load, 8000);
-    return () => clearInterval(t);
   }, []);
 
   // Al elegir un cliente, se completa con su perfil (rubro, palabras clave y competidores)
@@ -55,13 +29,6 @@ export default function SearchPage() {
     const kw = [...(c.keywords ?? []), ...(c.competitors ?? [])];
     if (kw.length) setKeywords(kw.join("\n"));
   }, [clientId]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  async function runNow(id: string) {
-    await supabase.from("searches").update({ status: "pending", error: null, apify_run_id: null, apify_dataset_id: null }).eq("id", id);
-    const err = await kick(id);
-    if (err) alert(`No pude arrancarla: ${err}`);
-    load();
-  }
 
   const kw = keywords.split("\n").map((s) => s.trim()).filter(Boolean);
   const estimate = Math.max(1, kw.length) * countries.length * perQuery;
@@ -88,20 +55,16 @@ export default function SearchPage() {
       setBusy(false);
       return;
     }
-    const err = await kick(s.id);
-    setMsg(
-      err
-        ? `La búsqueda quedó guardada, pero no pude arrancarla: ${err}`
-        : "Búsqueda en marcha. Mirá el avance en la lista de la derecha; cuando diga “Lista” la ves en la Biblioteca.",
-    );
+    const err = await kickSearch(s.id);
     setBusy(false);
-    load();
+    if (err) setMsg(`La búsqueda quedó guardada, pero no pude arrancarla: ${err}`);
+    else nav("/busquedas");
   }
 
   return (
     <div className="two-col">
       <form className="card" onSubmit={start}>
-        <h2>Nueva búsqueda</h2>
+        <h2>Empezar nueva búsqueda</h2>
         <label>
           Cliente (opcional)
           <select value={clientId} onChange={(e) => setClientId(e.target.value)}>
@@ -167,47 +130,13 @@ export default function SearchPage() {
       </form>
 
       <div className="card">
-        <h2>Búsquedas</h2>
-        {list.length === 0 && <p className="muted">Todavía no hiciste ninguna.</p>}
-        <ul className="list">
-          {list.map((s) => (
-            <li key={s.id}>
-              <div>
-                <b>{s.rubro}</b> <span className="muted">· {s.countries.join(", ")}</span>
-                {s.recurring && <span className="chip light">semanal</span>}
-                <div className="muted small">{s.keywords.join(" · ")}</div>
-                {s.status === "running" && (
-                  <div className="progress-wrap">
-                    <div className="progress-bar">
-                      <div style={{ width: `${s.progress_pct ?? 2}%` }} />
-                    </div>
-                    <div className="small muted">
-                      <b>{s.progress_pct ?? 0}%</b> · {s.progress ?? "Arrancando…"}
-                    </div>
-                  </div>
-                )}
-                {s.status === "pending" && Date.now() - new Date(s.created_at).getTime() > 10 * 60000 && (
-                  <div className="small muted">
-                    Sigue en cola hace rato. Apretá “Correr ahora”.
-                  </div>
-                )}
-                {s.error && <div className="error small">{s.error}</div>}
-              </div>
-              <div className="right">
-                <span className={`status ${s.status}`}>
-                  {STATUS[s.status] ?? s.status}
-                  {s.status === "running" && s.progress_pct != null ? ` ${s.progress_pct}%` : ""}
-                </span>
-                {s.status === "done" && <Link to={`/?busqueda=${s.id}`}>{s.total_found} anuncios →</Link>}
-                {s.status !== "running" && (
-                  <button className="ghost small" onClick={() => runNow(s.id)}>
-                    {s.status === "done" ? "Actualizar" : "Correr ahora"}
-                  </button>
-                )}
-              </div>
-            </li>
-          ))}
-        </ul>
+        <h2>Cómo funciona</h2>
+        <ol className="small" style={{ paddingLeft: 18 }}>
+          <li>Elegí el cliente: se completan solas sus palabras clave y competidores.</li>
+          <li>Apretá <b>Empezar búsqueda</b>. En el historial vas a ver el % de avance.</li>
+          <li>La IA descarta lo que no es del rubro, detecta el hook y propone cómo adaptarlo al cliente.</li>
+          <li>Cuando diga “Lista”, los anuncios aparecen en la <b>Biblioteca</b> ordenados por puntaje.</li>
+        </ol>
       </div>
     </div>
   );

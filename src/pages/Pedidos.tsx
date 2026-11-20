@@ -13,15 +13,17 @@ export default function Pedidos() {
 
   return (
     <div className="card">
-      <h2>Pedidos de piezas</h2>
-      {list.length === 0 && <p className="muted">Elegí anuncios en la Biblioteca y apretá “Crear pedido de piezas”.</p>}
+      <h2>Pedidos de creativos</h2>
+      {list.length === 0 && <p className="muted">Elegí anuncios en la Biblioteca y apretá “Crear pedido de creativos”.</p>}
       <ul className="list">
         {list.map((p) => (
           <li key={p.id}>
             <div>
               <Link to={`/pedidos/${p.id}`}><b>{p.title}</b></Link>
               <div className="muted small">
-                {p.client_id ? clients.get(p.client_id) : "Sin cliente"} · {new Date(p.created_at).toLocaleDateString("es-AR")}
+                {p.client_id ? clients.get(p.client_id) : "Sin cliente"} ·{" "}
+                {p.kind === "evento" ? `Evento${p.event_name ? `: ${p.event_name}` : ""}` : `Always On${p.period ? ` · ${p.period}` : ""}`} ·{" "}
+                {new Date(p.created_at).toLocaleDateString("es-AR")}
               </div>
             </div>
             <div className="right small">

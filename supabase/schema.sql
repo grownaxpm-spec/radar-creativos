@@ -234,3 +234,6 @@ alter default privileges in schema public grant all on tables to service_role;
 alter default privileges in schema public grant all on sequences to service_role;
 -- Reloj: avanzar búsquedas cada minuto (requiere pg_cron y pg_net)
 -- select cron.schedule('radar-tick', '* * * * *', $$ select net.http_post(url := '<SUPABASE_URL>/functions/v1/search-worker', body := '{"action":"tick"}'::jsonb, headers := '{"content-type":"application/json"}'::jsonb, timeout_milliseconds := 5000) $$);
+
+-- ---------- v3: descartes, referencias compartidas y estructura de pedido ----------
+-- (ver la migración v3_pedidos_referencias_descartes y pedido_ai_status en Supabase)

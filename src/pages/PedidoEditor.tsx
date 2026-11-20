@@ -1,53 +1,95 @@
-import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
-import { PIECE_FORMATS, supabase, type Ad, type Client, type Pedido, type PedidoItem } from "../lib.ts";
+import { useEffect, useRef, useState } from "react";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { DETAIL_LEVELS, PIECE_FORMATS, supabase, type Ad, type Client, type DetailLevel, type Pedido, type PedidoItem } from "../lib.ts";
 import { MediaView } from "./AdCard.tsx";
 
 type Item = PedidoItem & { ad?: Ad };
+type FullPedido = Pedido & { ai_status: string | null; ai_error: string | null };
+
+const isImage = (it: Item) => /imagen|estático|estatico|carrusel|feed|img/i.test(`${it.format ?? ""} ${it.code ?? ""}`) && !/reel|video|story/i.test(it.format ?? "");
 
 export default function PedidoEditor() {
   const { id } = useParams();
   const nav = useNavigate();
-  const [p, setP] = useState<Pedido | null>(null);
+  const [params, setParams] = useSearchParams();
+  const [p, setP] = useState<FullPedido | null>(null);
   const [items, setItems] = useState<Item[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
+  const started = useRef(false);
+
+  async function load() {
+    const { data: ped } = await supabase.from("pedidos").select("*").eq("id", id).single();
+    setP(ped as FullPedido);
+    const { data: its } = await supabase.from("pedido_items").select("*").eq("pedido_id", id).order("position");
+    const adIds = (its ?? []).map((i) => i.ad_id).filter(Boolean);
+    const { data: ads } = adIds.length ? await supabase.from("ads_view").select("*").in("id", adIds) : { data: [] };
+    const byId = new Map((ads ?? []).map((a: Ad) => [a.id, a]));
+    setItems((its ?? []).map((i) => ({ ...i, ad: i.ad_id ? byId.get(i.ad_id) : undefined })));
+    return ped as FullPedido;
+  }
 
   useEffect(() => {
-    (async () => {
-      const { data: ped } = await supabase.from("pedidos").select("*").eq("id", id).single();
-      setP(ped);
-      const { data: its } = await supabase.from("pedido_items").select("*").eq("pedido_id", id).order("position");
-      const adIds = (its ?? []).map((i) => i.ad_id).filter(Boolean);
-      const { data: ads } = await supabase.from("ads_view").select("*").in("id", adIds);
-      const byId = new Map((ads ?? []).map((a: Ad) => [a.id, a]));
-      setItems((its ?? []).map((i) => ({ ...i, ad: i.ad_id ? byId.get(i.ad_id) : undefined })));
-      const { data: cs } = await supabase.from("clients").select("*").order("name");
-      setClients(cs ?? []);
-    })();
-  }, [id]);
+    load();
+    supabase.from("clients").select("*").order("name").then(({ data }) => setClients((data as Client[]) ?? []));
+  }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Arranca la generación con IA si venimos del diálogo con "?generar=1"
+  useEffect(() => {
+    if (params.get("generar") === "1" && p && !started.current) {
+      started.current = true;
+      setParams({}, { replace: true });
+      void generate();
+    }
+  }, [p]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Mientras la IA escribe, consultamos cada 4 segundos
+  useEffect(() => {
+    if (p?.ai_status !== "generating") return;
+    const t = setInterval(async () => {
+      const fresh = await load();
+      if (fresh?.ai_status !== "generating") clearInterval(t);
+    }, 4000);
+    return () => clearInterval(t);
+  }, [p?.ai_status]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function generate() {
+    if (!p) return;
+    if (items.some((i) => i.hook || i.development) && !confirm("La IA va a reescribir los guiones de este pedido. ¿Seguimos?")) return;
+    await save();
+    setP({ ...p, ai_status: "generating", ai_error: null });
+    const { error } = await supabase.functions.invoke("search-worker", { body: { action: "draft_pedido", pedido_id: p.id } });
+    if (error) setP({ ...p, ai_status: "error", ai_error: error.message });
+  }
 
   if (!p) return <p className="center muted">Cargando…</p>;
   const client = clients.find((c) => c.id === p.client_id);
   const publicUrl = `${window.location.origin}/p/${p.slug}`;
-
+  const level = p.detail_level ?? "completo";
+  const showRec = level !== "guion";
+  const showFull = level === "completo";
   const setItem = (k: number, patch: Partial<Item>) => setItems(items.map((it, i) => (i === k ? { ...it, ...patch } : it)));
 
   async function save() {
     if (!p) return;
     setSaving(true);
-    await supabase
-      .from("pedidos")
-      .update({ title: p.title, client_id: p.client_id, objective: p.objective, notes: p.notes, artifact_url: p.artifact_url, drive_url: p.drive_url })
-      .eq("id", p.id);
+    const { id: _id, slug: _slug, created_at: _c, ai_status: _s, ai_error: _e, ...rest } = p;
+    await supabase.from("pedidos").update(rest).eq("id", p.id);
     for (const [k, it] of items.entries()) {
-      await supabase
-        .from("pedido_items")
-        .update({ position: k + 1, piece_name: it.piece_name, format: it.format, angle: it.angle, script: it.script, notes: it.notes })
-        .eq("id", it.id!);
+      const { ad: _ad, id: itemId, pedido_id: _pid, ...fields } = it;
+      await supabase.from("pedido_items").update({ ...fields, position: k + 1 }).eq("id", itemId!);
     }
     setSaving(false);
+  }
+
+  async function addPiece() {
+    const { data } = await supabase
+      .from("pedido_items")
+      .insert({ pedido_id: p!.id, position: items.length + 1, code: `V${items.length + 1}`, piece_name: `Pieza ${items.length + 1}` })
+      .select()
+      .single();
+    if (data) setItems([...items, data as Item]);
   }
 
   async function removeItem(k: number) {
@@ -57,50 +99,20 @@ export default function PedidoEditor() {
   }
 
   async function removePedido() {
-    if (!p || !confirm("¿Borrar este pedido?")) return;
-    await supabase.from("pedidos").delete().eq("id", p.id);
+    if (!confirm("¿Borrar este pedido?")) return;
+    await supabase.from("pedidos").delete().eq("id", p!.id);
     nav("/pedidos");
   }
 
   function claudePrompt() {
-    const refs = items
-      .map((it, k) => {
-        const a = it.ad;
-        const media = (a?.media ?? []).map((m) => `${m.type === "video" ? "video" : "imagen"}: ${m.url}`).join(" | ");
-        return [
-          `${k + 1}. ${it.piece_name ?? `Pieza ${k + 1}`} — formato pedido: ${it.format ?? "a definir"}${it.angle ? ` — ángulo: ${it.angle}` : ""}`,
-          a ? `   Referencia: ${a.page_name ?? "marca"} (${a.format}, ${a.days_active} días activo, ${a.countries.join("/")})` : "",
-          a?.hook ? `   Hook: ${a.hook}${a.hook_type ? ` (${a.hook_type})` : ""}` : "",
-          a?.why_it_works ? `   Por qué funciona: ${a.why_it_works}` : "",
-          a?.adaptation ? `   Idea de adaptación: ${a.adaptation}` : "",
-          a?.body ? `   Texto del anuncio: "${a.body.replace(/\s+/g, " ").slice(0, 400)}"` : "",
-          media ? `   Medios: ${media}` : "",
-          a ? `   Ficha en Meta: ${a.snapshot_url}` : "",
-          it.script ? `   Guion que ya tenemos: ${it.script}` : "",
-          it.notes ? `   Notas: ${it.notes}` : "",
-        ]
-          .filter(Boolean)
-          .join("\n");
-      })
-      .join("\n\n");
-    return `Armá un pedido de piezas usando la skill pedido-creativos.
+    return `Armá el pedido de creativos usando la skill pedido-creativos, publicalo como artefacto con los videos de referencia reproducibles (como el de Black Vinson) y guardá el PDF en la carpeta del cliente en Drive.
 
-Cliente: ${client?.name ?? "(sin cliente)"}${client?.rubro ? ` — rubro: ${client.rubro}` : ""}
-${client?.usp ? `Propuesta de valor: ${client.usp}\n` : ""}${client?.target ? `Público: ${client.target}\n` : ""}${client?.messages?.length ? `Mensajes guía: ${client.messages.join(" | ")}\n` : ""}${client?.tone ? `Tono: ${client.tone}\n` : ""}${client?.avoid ? `No comunicar: ${client.avoid}\n` : ""}${client?.notes ? `Notas: ${client.notes}\n` : ""}
-Título: ${p!.title}
-${p!.objective ? `Objetivo: ${p!.objective}\n` : ""}${p!.notes ? `Notas generales: ${p!.notes}\n` : ""}
-Referencias elegidas (anuncios de la competencia de la Biblioteca de Meta):
+Pedido: ${p!.title}
+Link con todo el contenido, las referencias y los guiones: ${publicUrl}
+${client?.drive_folder_url ? `Carpeta de Drive del cliente: ${client.drive_folder_url}` : ""}
+Nivel de detalle: ${DETAIL_LEVELS.find(([v]) => v === level)?.[1]}
 
-${refs}
-
-Para cada pieza:
-- Explicá qué replicar de la referencia (gancho, estructura, ritmo, plano, texto en pantalla).
-- Escribí un guion sugerido adaptado a ${client?.name ?? "la marca"} (gancho 0-3 s, desarrollo, cierre con CTA), con textos en pantalla y locución si corresponde.
-- Indicá formato, duración y qué material necesitamos del cliente.
-
-Entregá el pedido como artefacto de Claude con cada video/imagen de referencia reproducible al lado de su pieza y guion.
-${client?.drive_folder_url ? `Guardá una copia en la carpeta del cliente en Drive: ${client.drive_folder_url}` : "Guardá una copia en la carpeta del cliente en Drive."}
-Link del pedido en el Radar (si algún video no se reproduce en el artefacto, enlazá acá): ${publicUrl}`;
+Leé el link, respetá la estructura y los guiones que ya están, y mejoralos si hace falta.`;
   }
 
   async function copyPrompt() {
@@ -110,89 +122,164 @@ Link del pedido en el Radar (si algún video no se reproduce en el artefacto, en
     setTimeout(() => setCopied(false), 2500);
   }
 
+  const generating = p.ai_status === "generating";
+
   return (
     <div>
       <div className="card">
         <div className="row between wrap">
           <input className="title-input" value={p.title} onChange={(e) => setP({ ...p, title: e.target.value })} />
-          <div className="row">
+          <div className="row wrap">
+            <button className="ghost" onClick={generate} disabled={generating}>{generating ? "La IA está escribiendo…" : "✨ Generar con IA"}</button>
             <button className="ghost" onClick={save} disabled={saving}>{saving ? "Guardando…" : "Guardar"}</button>
-            <button onClick={copyPrompt}>{copied ? "✓ Copiado" : "Copiar para Claude"}</button>
+            <a href={publicUrl} target="_blank" rel="noreferrer" onClick={() => void save()}><button>Ver link del cliente ↗</button></a>
           </div>
         </div>
-        <div className="row wrap">
+        {generating && (
+          <div className="note">
+            La IA está escribiendo los guiones, los hooks sugeridos{showRec ? ", cómo grabar cada pieza" : ""} y cómo se entrega. Tarda 1 o 2 minutos; se actualiza sola.
+            <div className="progress-bar indeterminate"><div /></div>
+          </div>
+        )}
+        {p.ai_status === "error" && <p className="error">No se pudo generar: {p.ai_error}</p>}
+
+        <div className="profile-grid">
           <label>
             Cliente
             <select value={p.client_id ?? ""} onChange={(e) => setP({ ...p, client_id: e.target.value || null })}>
               <option value="">— Sin cliente —</option>
-              {clients.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
+              {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </label>
-          <label className="grow">
-            Objetivo
-            <input value={p.objective ?? ""} onChange={(e) => setP({ ...p, objective: e.target.value })} placeholder="Ej: campaña de invierno, botas, foco en calidad del cuero" />
+          <label>
+            Nivel de detalle
+            <select value={level} onChange={(e) => setP({ ...p, detail_level: e.target.value as DetailLevel })}>
+              {DETAIL_LEVELS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+          </label>
+          <label>
+            Tipo
+            <select value={p.kind} onChange={(e) => setP({ ...p, kind: e.target.value as "aon" | "evento" })}>
+              <option value="aon">Always On</option>
+              <option value="evento">Evento</option>
+            </select>
+          </label>
+          {p.kind === "evento" ? (
+            <label>Evento<input value={p.event_name ?? ""} onChange={(e) => setP({ ...p, event_name: e.target.value || null })} placeholder="Black Friday" /></label>
+          ) : (
+            <label>Mes<input value={p.period ?? ""} onChange={(e) => setP({ ...p, period: e.target.value || null })} /></label>
+          )}
+          <label>Entrega<input type="date" value={p.deadline ?? ""} onChange={(e) => setP({ ...p, deadline: e.target.value || null })} /></label>
+          <label>
+            Plataforma
+            <select value={p.platform} onChange={(e) => setP({ ...p, platform: e.target.value })}>
+              <option>Meta</option><option>TikTok</option><option>Google</option>
+            </select>
           </label>
         </div>
-        <label>
-          Notas generales
-          <textarea rows={2} value={p.notes ?? ""} onChange={(e) => setP({ ...p, notes: e.target.value })} />
-        </label>
+        <label>Objetivo / foco<input value={p.objective ?? ""} onChange={(e) => setP({ ...p, objective: e.target.value || null })} /></label>
+        <label>Info extra (precios, promos, restricciones)<textarea rows={2} value={p.notes ?? ""} onChange={(e) => setP({ ...p, notes: e.target.value || null })} /></label>
+        <label>Texto de portada<textarea rows={2} value={p.intro ?? ""} onChange={(e) => setP({ ...p, intro: e.target.value || null })} /></label>
+        <label>Lo que no cambia en ninguna pieza<textarea rows={2} value={p.refs_note ?? ""} onChange={(e) => setP({ ...p, refs_note: e.target.value || null })} /></label>
         <div className="row wrap small">
           <span className="muted">Link para el cliente:</span>
           <a href={publicUrl} target="_blank" rel="noreferrer">{publicUrl}</a>
+          <button className="ghost small" onClick={copyPrompt}>{copied ? "✓ Copiado" : "Copiar para Claude (artefacto + Drive)"}</button>
         </div>
-        <div className="row wrap">
-          <label className="grow">
-            Link del artefacto de Claude
-            <input value={p.artifact_url ?? ""} onChange={(e) => setP({ ...p, artifact_url: e.target.value })} placeholder="https://claude.ai/…" />
-          </label>
-          <label className="grow">
-            Link en Drive
-            <input value={p.drive_url ?? ""} onChange={(e) => setP({ ...p, drive_url: e.target.value })} placeholder="https://drive.google.com/…" />
-          </label>
-        </div>
-        <p className="muted small">
-          “Copiar para Claude” copia las instrucciones con todas las referencias. Pegalas en Claude: escribe los guiones, publica el artefacto y lo guarda en el Drive del cliente.
-        </p>
       </div>
 
-      {items.map((it, k) => (
-        <div className="card piece" key={it.id ?? k}>
-          <div className="piece-ref">
-            {it.ad ? <MediaView media={it.ad.media} compact /> : <div className="media empty">Sin referencia</div>}
-            {it.ad && (
-              <div className="small muted">
-                {it.ad.page_name} · {it.ad.days_active} días ·{" "}
-                <a href={it.ad.snapshot_url} target="_blank" rel="noreferrer">Meta ↗</a>
-              </div>
-            )}
-          </div>
-          <div className="piece-form">
-            <div className="row wrap">
-              <input className="grow" value={it.piece_name ?? ""} onChange={(e) => setItem(k, { piece_name: e.target.value })} />
-              <select value={it.format ?? ""} onChange={(e) => setItem(k, { format: e.target.value })}>
-                <option value="">Formato…</option>
-                {PIECE_FORMATS.map((f) => (
-                  <option key={f}>{f}</option>
-                ))}
-              </select>
-              <input value={it.angle ?? ""} onChange={(e) => setItem(k, { angle: e.target.value })} placeholder="Ángulo" />
-              <button className="ghost small" onClick={() => removeItem(k)} title="Quitar pieza">✕</button>
+      <h2 className="section-title">Piezas ({items.length})</h2>
+      {items.map((it, k) => {
+        const img = isImage(it);
+        return (
+          <div className="card piece" key={it.id ?? k}>
+            <div className="piece-ref">
+              {it.ad ? <MediaView media={it.ad.media} compact /> : <div className="media empty compact">Sin referencia</div>}
+              {it.ad && (
+                <div className="small muted">
+                  {it.ad.page_name} · {it.ad.days_active} días ·{" "}
+                  <a href={it.ad.snapshot_url} target="_blank" rel="noreferrer">Meta ↗</a>
+                </div>
+              )}
             </div>
-            {it.ad?.body && <p className="copy open small muted">{it.ad.body}</p>}
-            <label>
-              Guion sugerido
-              <textarea rows={6} value={it.script ?? ""} onChange={(e) => setItem(k, { script: e.target.value })} placeholder={"0-3 s: gancho…\n3-10 s: …\nCierre: CTA…"} />
-            </label>
-            <label>
-              Notas para el editor / cliente
-              <textarea rows={2} value={it.notes ?? ""} onChange={(e) => setItem(k, { notes: e.target.value })} />
-            </label>
+            <div className="piece-form">
+              <div className="row wrap">
+                <input style={{ width: 70 }} value={it.code ?? ""} onChange={(e) => setItem(k, { code: e.target.value })} placeholder="V1" />
+                <input className="grow" value={it.title ?? it.piece_name ?? ""} onChange={(e) => setItem(k, { title: e.target.value, piece_name: e.target.value })} placeholder="Título de la pieza" />
+                <button className="ghost small" onClick={() => removeItem(k)} title="Quitar pieza">✕</button>
+              </div>
+              <div className="row wrap">
+                <select value={it.format ?? ""} onChange={(e) => setItem(k, { format: e.target.value })}>
+                  <option value="">Formato…</option>
+                  {PIECE_FORMATS.map((f) => <option key={f}>{f}</option>)}
+                  {it.format && !PIECE_FORMATS.includes(it.format) && <option>{it.format}</option>}
+                </select>
+                <select value={it.funnel ?? ""} onChange={(e) => setItem(k, { funnel: (e.target.value || null) as Item["funnel"] })}>
+                  <option value="">Embudo…</option>
+                  <option value="fria">Fría</option>
+                  <option value="caliente">Caliente</option>
+                </select>
+                <input value={it.angle ?? ""} onChange={(e) => setItem(k, { angle: e.target.value })} placeholder="Ángulo" />
+                {showFull && <input value={it.creative_type ?? ""} onChange={(e) => setItem(k, { creative_type: e.target.value })} placeholder="Tipo de creativo (UGC, testimonial…)" />}
+                <input value={it.group_name ?? ""} onChange={(e) => setItem(k, { group_name: e.target.value })} placeholder="Grupo (ej. Zapatillas)" />
+              </div>
+              {it.ad && <label>Qué replicar de la referencia<textarea rows={2} value={it.ref_beats ?? ""} onChange={(e) => setItem(k, { ref_beats: e.target.value })} /></label>}
+              {img ? (
+                <>
+                  <label>Escena / composición<textarea rows={3} value={it.scene ?? ""} onChange={(e) => setItem(k, { scene: e.target.value })} /></label>
+                  <div className="profile-grid">
+                    <label>Titular<input value={it.headline ?? ""} onChange={(e) => setItem(k, { headline: e.target.value })} /></label>
+                    <label>Bajada<input value={it.subhead ?? ""} onChange={(e) => setItem(k, { subhead: e.target.value })} /></label>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <label>Hook<textarea rows={2} value={it.hook ?? ""} onChange={(e) => setItem(k, { hook: e.target.value })} /></label>
+                  <label>Desarrollo<textarea rows={5} value={it.development ?? ""} onChange={(e) => setItem(k, { development: e.target.value })} /></label>
+                  <label>Cierre<textarea rows={2} value={it.closing ?? ""} onChange={(e) => setItem(k, { closing: e.target.value })} /></label>
+                </>
+              )}
+              {showRec && (
+                <div className="profile-grid">
+                  <label>Cómo grabarlo<textarea rows={3} value={it.recording_tips ?? ""} onChange={(e) => setItem(k, { recording_tips: e.target.value })} /></label>
+                  <label>Duración<input value={it.duration ?? ""} onChange={(e) => setItem(k, { duration: e.target.value })} placeholder="45-60 s" /></label>
+                </div>
+              )}
+              {showFull && <label>Adaptaciones<input value={it.adaptations ?? ""} onChange={(e) => setItem(k, { adaptations: e.target.value })} placeholder="9:16 y 4:5" /></label>}
+              <label>Notas<textarea rows={1} value={it.notes ?? ""} onChange={(e) => setItem(k, { notes: e.target.value })} /></label>
+            </div>
           </div>
+        );
+      })}
+      <div className="center">
+        <button className="ghost" onClick={addPiece}>+ Agregar pieza</button>
+      </div>
+
+      <div className="card">
+        <h2>Hooks sugeridos para el rubro</h2>
+        {p.hooks.length === 0 && <p className="muted small">Se completan al generar con IA. También podés escribirlos.</p>}
+        {p.hooks.map((h, k) => (
+          <div className="row" key={k} style={{ marginBottom: 6 }}>
+            <input className="grow" value={h.hook} onChange={(e) => setP({ ...p, hooks: p.hooks.map((x, i) => (i === k ? { ...x, hook: e.target.value } : x)) })} />
+            <input style={{ width: 170 }} value={h.tipo ?? ""} placeholder="Tipo" onChange={(e) => setP({ ...p, hooks: p.hooks.map((x, i) => (i === k ? { ...x, tipo: e.target.value } : x)) })} />
+            <button className="ghost small" onClick={() => setP({ ...p, hooks: p.hooks.filter((_, i) => i !== k) })}>✕</button>
+          </div>
+        ))}
+        <button className="ghost small" onClick={() => setP({ ...p, hooks: [...p.hooks, { hook: "", tipo: "" }] })}>+ Hook</button>
+      </div>
+
+      {showFull && (
+        <div className="card">
+          <h2>Antes de grabar</h2>
+          {p.before_notes.map((n, k) => (
+            <div className="row" key={k} style={{ marginBottom: 6 }}>
+              <textarea className="grow" rows={2} value={n} onChange={(e) => setP({ ...p, before_notes: p.before_notes.map((x, i) => (i === k ? e.target.value : x)) })} />
+              <button className="ghost small" onClick={() => setP({ ...p, before_notes: p.before_notes.filter((_, i) => i !== k) })}>✕</button>
+            </div>
+          ))}
+          <button className="ghost small" onClick={() => setP({ ...p, before_notes: [...p.before_notes, ""] })}>+ Nota</button>
         </div>
-      ))}
+      )}
 
       <div className="center">
         <button className="ghost danger small" onClick={removePedido}>Borrar pedido</button>
