@@ -80,17 +80,36 @@ export function MediaView({
   clip,
   large,
   onOpen,
+  link,
 }: {
   media: Media[];
   compact?: boolean;
   clip?: boolean;
   large?: boolean;
   onOpen?: () => void;
+  /** Link para ver el anuncio en Meta cuando no hay archivo para mostrar */
+  link?: string;
 }) {
   const [i, setI] = useState(0);
-  useEffect(() => setI(0), [media]);
+  const [broken, setBroken] = useState(false);
+  useEffect(() => {
+    setI(0);
+    setBroken(false);
+  }, [media]);
   const m = media[i];
-  if (!m) return <div className="media empty">Sin medio</div>;
+  if (!m || broken)
+    return (
+      <div className={`media empty ${compact ? "compact" : ""} ${large ? "large" : ""}`} onClick={onOpen}>
+        <div className="no-media">
+          <span>Meta no permite descargar este archivo</span>
+          {link && (
+            <a href={link} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>
+              Verlo en Meta ↗
+            </a>
+          )}
+        </div>
+      </div>
+    );
   const preview = !!onOpen;
   const go = (d: number) => (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -116,7 +135,7 @@ export function MediaView({
           autoPlay={!!large}
         />
       ) : (
-        <img src={m.url} alt="" loading="lazy" />
+        <img src={m.url} alt="" loading="lazy" onError={() => setBroken(true)} />
       )}
       {preview && m.type === "video" && !clip && <span className="play-badge" aria-hidden>▶</span>}
       {clip && m.type === "video" && <span className="clip-badge">Hook · {HOOK_SECONDS} s</span>}
@@ -173,7 +192,7 @@ export default function AdCard({
         <button className="discard" title="Descartar: no sirve para este cliente" onClick={onDiscard}>
           ✕ Descartar
         </button>
-        <MediaView media={ad.media} clip={hookMode} onOpen={onOpen} />
+        <MediaView media={ad.media} clip={hookMode} onOpen={onOpen} link={ad.snapshot_url} />
       </div>
       <div className="ad-body" onClick={onOpen} role="button" tabIndex={0} onKeyDown={(e) => e.key === "Enter" && onOpen()}>
         <div className="row between">
@@ -296,7 +315,7 @@ export function AdModal({
                 </label>
               )}
             </div>
-            <MediaView media={ad.media} large clip={clip} />
+            <MediaView media={ad.media} large clip={clip} link={ad.snapshot_url} />
             {isVideo && (
               <label className="check small" style={{ marginTop: 8 }}>
                 <input type="checkbox" checked={clip} onChange={(e) => setClip(e.target.checked)} /> Ver solo el hook ({HOOK_SECONDS} s)

@@ -88,12 +88,53 @@ const clientFields = (a: any) =>
 const kick = () => fetch(WORKER_URL, { method: "POST", headers: { "content-type": "application/json" }, body: '{"action":"tick"}' }).catch(() => {});
 const EVENTS = ["Black Friday", "Cyber Monday", "Hot Sale", "Navidad", "Día del Padre", "Día de la Madre", "Día del Niño", "San Valentín", "Rebajas / liquidación"];
 
+// Saca el mp4 (y una portada) de la vista previa de Meta (preview_iframe.php). Desde este servidor se puede abrir.
+// La de "Feed de Facebook" (MOBILE_FEED_STANDARD) trae el video incrustado; la de Reels a veces no.
+const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36";
+const unesc = (x: string) => x.replace(/\\\//g, "/").replace(/\\u0025/g, "%").replace(/\\u0026/g, "&").replace(/&amp;/g, "&").replace(/\\/g, "");
+async function fromPreview(previewUrl: string): Promise<{ video: string | null; poster: string | null }> {
+  // Meta rechaza el fetch de las funciones; la vista previa se pide desde la base (pg_net).
+  try {
+    const { data: id } = await db.rpc("preview_fetch", { p_url: previewUrl.replace(/&amp;/g, "&") });
+    if (!id) return { video: null, poster: null };
+    let html = "";
+    for (let i = 0; i < 60 && !html; i++) {
+      await new Promise((r) => setTimeout(r, 1500));
+      const { data } = await db.rpc("preview_result", { p_id: id });
+      if (data) html = (data as { content: string | null }).content ?? " ";
+    }
+    const vids = [...html.matchAll(/https:\\?\/\\?\/video[^"'\s<>]+?\.mp4[^"'\s<>]*/g)].map((m) => unesc(m[0]));
+    // Las pistas "dash" vienen sin audio: se prefiere el mp4 progresivo (sve_hd, después sve_sd).
+    const rank = (v: string) => (/tag=sve_hd/.test(v) ? 3 : /tag=sve_sd/.test(v) ? 2 : /dash/i.test(v) ? 0 : 1);
+    const video = [...vids].sort((x, y) => rank(y) - rank(x))[0] ?? null;
+    const pm = html.match(/https:\\?\/\\?\/scontent[^"'\s<>]+?\.(?:jpg|png)[^"'\s<>]*/);
+    return { video, poster: pm ? unesc(pm[0]) : null };
+  } catch {
+    return { video: null, poster: null };
+  }
+}
+
+// Guarda video o imagen (link directo o vista previa de Meta) y devuelve los medios listos para la biblioteca
+async function resolveMedia(key: string, a: { video_url?: string; imagen_url?: string; vista_previa_url?: string; formato?: string }) {
+  const saved = (u: string | null) => !!u && u.includes("/storage/v1/");
+  let videoSrc = a.video_url ?? null;
+  let poster: string | null = null;
+  if (!videoSrc && a.vista_previa_url) ({ video: videoSrc, poster } = await fromPreview(a.vista_previa_url));
+  const img = a.imagen_url ? await copyMedia(a.imagen_url, `propio/${key}/img-${Date.now()}.jpg`) : null;
+  const pst = !saved(img) && poster ? await copyMedia(poster, `propio/${key}/poster-${Date.now()}.jpg`) : null;
+  const vid = videoSrc ? await copyMedia(videoSrc, `propio/${key}/${Date.now()}.mp4`) : null;
+  const media: any[] = [];
+  if (saved(vid)) media.push({ type: "video", url: vid, thumb: saved(img) ? img : saved(pst) ? pst : null });
+  else if (saved(img) && a.formato !== "video") media.push({ type: "image", url: img });
+  return media;
+}
+
 async function copyMedia(url: string, key: string): Promise<string> {
   try {
     const res = await fetch(url);
     if (!res.ok) return url;
     const bytes = new Uint8Array(await res.arrayBuffer());
-    if (bytes.length > 20 * 1024 * 1024) return url;
+    if (bytes.length > 60 * 1024 * 1024) return url;
     const { error } = await db.storage.from("media").upload(key, bytes, { contentType: res.headers.get("content-type") ?? undefined, upsert: true });
     return error ? url : `${SUPABASE_URL}/storage/v1/object/public/media/${key}`;
   } catch {
@@ -317,7 +358,11 @@ const TOOLS: Tool[] = [
   {
     name: "agregar_anuncio_propio",
     description:
-      "Suma a la biblioteca un anuncio de la cuenta publicitaria del propio cliente (por ejemplo, un ganador sacado con el conector de Meta Ads), con su video o imagen y sus métricas, para usarlo de referencia en un pedido. Guarda una copia del video para que no venza.",
+      "Suma a la biblioteca un anuncio de la cuenta publicitaria del propio cliente (por ejemplo, un ganador sacado con el conector de Meta Ads), con su video o imagen y sus métricas, para usarlo de referencia en un pedido. Guarda una copia del archivo para que no venza. " +
+      "IMPORTANTE, para que se vea el archivo: con el conector de Meta Ads sacá el creative_id (ads_get_ad_entities, level=ad) y ads_get_creatives (video_id, image_hash, asset_feed_spec, object_story_spec). " +
+      "Video: pasá en video_url el download_hd_url de ads_get_ad_videos (video_ids + fields=[download_hd_url]); si viene vacío (pasa seguido), pasá en vista_previa_url el preview_url de ads_get_ad_preview con ad_format=MOBILE_FEED_STANDARD y el servidor saca el mp4 solo. " +
+      "Imagen: pasá en imagen_url el download_url de ads_get_ad_images (hashes + fields=[download_url]). No uses thumbnail_url ni picture (miniaturas que vencen). " +
+      "Si el creativo se llama {{product.name}} o la vista previa trae product_set, es de catálogo: pasá es_catalogo=true.",
     inputSchema: {
       type: "object",
       properties: {
@@ -332,15 +377,16 @@ const TOOLS: Tool[] = [
         por_que_funciona: str("Por qué funciona según las métricas"),
         metricas: { type: "object", description: "Métricas del anuncio: gasto, roas, ctr, compras, cpa, hook_rate, periodo…" },
         fecha_inicio: str("Fecha de inicio YYYY-MM-DD"),
+        cuenta_id: str("ID de la cuenta publicitaria (sin act_), para el link al Administrador de anuncios"),
+        vista_previa_url: str("preview_url de ads_get_ad_preview con ad_format=MOBILE_FEED_STANDARD: de ahí se saca el video si Meta no da download_hd_url"),
+        es_catalogo: bool("true si es un anuncio de catálogo (creativo llamado {{product.name}} o la vista previa trae product_set): se guarda como dato pero no como referencia creativa"),
       },
       required: ["cliente", "meta_ad_id", "formato"],
     },
     run: async (a) => {
       const client = await findClient(a.cliente);
-      const media: any[] = [];
-      const thumb = a.imagen_url ? await copyMedia(a.imagen_url, `propio/${a.meta_ad_id}/thumb.jpg`) : null;
-      if (a.video_url) media.push({ type: "video", url: await copyMedia(a.video_url, `propio/${a.meta_ad_id}/0.mp4`), thumb });
-      else if (thumb) media.push({ type: "image", url: thumb });
+      // Solo se guarda lo que se pudo copiar: un link directo de Meta se ve roto en el navegador y vence
+      const media = await resolveMedia(String(a.meta_ad_id), a);
       const m = a.metricas ?? {};
       const roas = Number(m.roas) || 0;
       const { data, error } = await db
@@ -359,17 +405,55 @@ const TOOLS: Tool[] = [
             why_it_works: a.por_que_funciona ?? null,
             metrics: a.metricas ?? null,
             start_date: a.fecha_inicio ?? null,
-            relevant: true,
+            relevant: !a.es_catalogo,
             angle: null,
             score: roas ? Math.min(100, Math.round(40 + roas * 10)) : 60,
-            snapshot_url: `https://www.facebook.com/ads/library/?id=${a.meta_ad_id}`,
+            snapshot_url: a.cuenta_id
+              ? `https://adsmanager.facebook.com/adsmanager/manage/ads?act=${a.cuenta_id}&selected_ad_ids=${a.meta_ad_id}`
+              : `https://adsmanager.facebook.com/adsmanager/manage/ads?selected_ad_ids=${a.meta_ad_id}`,
           },
           { onConflict: "platform,ad_archive_id" },
         )
         .select("id")
         .single();
       if (error) throw error;
-      return { anuncio_id: data.id, guardado: true, video_guardado: media[0]?.url?.includes("/storage/") ?? false };
+      return {
+        anuncio_id: data.id,
+        guardado: true,
+        archivo_guardado: media.length > 0,
+        aviso: a.es_catalogo
+          ? "Es de catálogo: quedó guardado como dato pero oculto en la biblioteca (no es referencia creativa)."
+          : media.length
+            ? undefined
+            : "No se pudo descargar el archivo. Probá con vista_previa_url (ads_get_ad_preview, ad_format=MOBILE_FEED_STANDARD) o con actualizar_archivo_anuncio.",
+      };
+    },
+  },
+  {
+    name: "actualizar_archivo_anuncio",
+    description:
+      "Reemplaza el video o la imagen de un anuncio que ya está en la biblioteca (por ejemplo, uno propio que quedó sin archivo). " +
+      "Pasá video_url (download_hd_url de Meta), imagen_url (download_url) o vista_previa_url (preview_url de ads_get_ad_preview con ad_format=MOBILE_FEED_STANDARD).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        anuncio_id: str("ID del anuncio en la biblioteca"),
+        video_url: str("Link de descarga del video"),
+        imagen_url: str("Link de descarga de la imagen"),
+        vista_previa_url: str("Vista previa de Meta (Feed de Facebook) de donde sacar el video"),
+      },
+      required: ["anuncio_id"],
+    },
+    run: async (a) => {
+      const { data: ad } = await db.from("ads").select("id, ad_archive_id, format").eq("id", a.anuncio_id).maybeSingle();
+      if (!ad) throw new Error("No encontré el anuncio");
+      const media = await resolveMedia(String(ad.ad_archive_id), { ...a, formato: ad.format });
+      if (!media.length) throw new Error("No pude descargar nada. Si usaste una vista previa de Reels, probá con la de Feed de Facebook (MOBILE_FEED_STANDARD).");
+      await db
+        .from("ads")
+        .update({ media, ...(media[0].type === "video" ? { format: "video", video_status: null, video_error: null, video_analysis: null } : {}) })
+        .eq("id", ad.id);
+      return { ok: true, guardado: media[0].type };
     },
   },
   {
@@ -829,7 +913,7 @@ const TOOLS: Tool[] = [
   },
 ];
 
-const SERVER_INFO = { name: "pedido-de-creativos", title: "Pedido de Creativos (Grownax)", version: "2.0.0" };
+const SERVER_INFO = { name: "pedido-de-creativos", title: "Pedido de Creativos (Grownax)", version: "2.2.0" };
 const INSTRUCTIONS =
   "Herramienta de la agencia para encontrar referencias de anuncios de la competencia y armar pedidos de creativos. " +
   "Podés hacer todo lo que hace la herramienta: buscar, ver y filtrar anuncios, favoritos, descartes, grupos, clientes y pedidos (crear, editar piezas, regenerar, borrar). " +
