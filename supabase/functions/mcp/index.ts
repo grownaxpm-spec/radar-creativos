@@ -935,11 +935,12 @@ const TOOLS: Tool[] = [
   },
 ];
 
-const SERVER_INFO = { name: "pedido-de-creativos", title: "Pedido de Creativos (Grownax)", version: "2.2.0" };
+const SERVER_INFO = { name: "pedido-de-creativos", title: "Pedido de Creativos (Grownax)", version: "2.3.0" };
 const INSTRUCTIONS =
   "Herramienta de la agencia para encontrar referencias de anuncios de la competencia y armar pedidos de creativos. " +
   "Podés hacer todo lo que hace la herramienta: buscar, ver y filtrar anuncios, favoritos, descartes, grupos, clientes y pedidos (crear, editar piezas, regenerar, borrar). " +
-  "Para lanzar una búsqueda: primero preparar_busqueda y preguntale al usuario TODO JUNTO en un solo mensaje; recién con sus respuestas, empezar_busqueda con confirmado=true. " +
+  "Para lanzar una búsqueda: primero preparar_busqueda y charlalo en UN solo mensaje (qué quiere encontrar y para qué, con sus palabras; proponé vos el resto). Con su respuesta, empezar_busqueda con confirmado=true, evento en sus palabras (puede ser más de uno), que_buscas y todas las palabras clave que surjan. " +
+  "Los anuncios de catálogo (product_set o {{product.name}}) nunca van en un pedido. " +
   "Si el usuario nombra un grupo, usá listar_grupos / ver_grupo y crear_pedido con grupo: esas referencias las eligió una persona, no las cambies. " +
   "Flujo típico: listar_clientes → buscar_en_biblioteca (o empezar_busqueda si faltan referencias) → crear_pedido con los ids elegidos como referencia y los mejores hooks en hook_ids → ver_pedido. " +
   "Para eventos (Black Friday, Cyber, Hot Sale) usá solo_venta_directa y buscá con evento. Para no repetir referencias, usá ocultar_usados. " +

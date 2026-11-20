@@ -65,7 +65,12 @@ export async function startRun(
     headers: { "content-type": "application/json" },
     body: JSON.stringify(actorInput(startUrls, limitPerUrl)),
   });
-  if (!res.ok) throw new Error(`Apify no arrancó (${res.status}): ${(await res.text()).slice(0, 300)}`);
+  if (!res.ok) {
+    const txt = await res.text();
+    if (/platform-feature-disabled|monthly usage|usage limit/i.test(txt))
+      throw new Error("Se terminó el crédito del mes de Apify (el plan gratis trae USD 5). Se renueva solo al empezar el próximo ciclo, o se puede pasar a un plan pago en apify.com → Billing.");
+    throw new Error(`Apify no arrancó (${res.status}): ${txt.slice(0, 300)}`);
+  }
   const run = (await res.json()).data;
   return { runId: run.id, datasetId: run.defaultDatasetId };
 }
