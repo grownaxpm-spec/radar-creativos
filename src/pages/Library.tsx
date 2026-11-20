@@ -269,6 +269,24 @@ export default function Library({ fixedClientId, hooksOnly }: { fixedClientId?: 
       )}
       {!hookMode && countriesSeen.length > 1 && <p className="muted small">Países: {countriesSeen.join(", ")}</p>}
 
+      {visible.length > 0 && (
+        <div className="row wrap select-row">
+          <button
+            className="ghost small"
+            onClick={() =>
+              hookMode
+                ? visible.filter((a) => !sel.hookIds.includes(a.id)).forEach((a) => sel.toggleHook(a.id))
+                : sel.set([...new Set([...sel.ids, ...visible.map((a) => a.id)])])
+            }
+          >
+            ☑ Seleccionar todos{hookMode ? " como hook" : ""} ({visible.length})
+          </button>
+          {(sel.ids.length > 0 || sel.hookIds.length > 0) && (
+            <button className="ghost small" onClick={() => { sel.clear(); setShared(null); }}>✕ Deseleccionar todos</button>
+          )}
+        </div>
+      )}
+
       {!loading && visible.length === 0 && (
         <div className="empty-state">
           <p>{hookMode ? "Todavía no hay hooks en video para estos filtros." : "Todavía no hay anuncios acá."}</p>
@@ -341,7 +359,7 @@ export default function Library({ fixedClientId, hooksOnly }: { fixedClientId?: 
           <span>
             <b>{sel.ids.length}</b> referencias · <b>{sel.hookIds.length}</b> hooks{clientName ? ` para ${clientName}` : ""}
           </span>
-          <button className="ghost small" onClick={() => { sel.clear(); setShared(null); }}>Limpiar</button>
+          <button className="ghost small" onClick={() => { sel.clear(); setShared(null); }} title="Saca todas las referencias y hooks elegidos">✕ Deseleccionar todos</button>
           <button className="ghost" onClick={() => { setOpen(null); setGroupDialog(true); }}>Guardar como grupo</button>
           <button className="ghost" onClick={shareRefs} disabled={sel.ids.length === 0}>Compartir referencias</button>
           <button onClick={() => { setOpen(null); setDialog(true); }} disabled={sel.ids.length === 0}>Crear pedido de creativos →</button>

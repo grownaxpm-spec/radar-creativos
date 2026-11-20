@@ -314,3 +314,4 @@ ol.scenes .t { font-family: var(--gx-font-mono); color: var(--gx-blue); font-siz
   .tray button { font-size: 14px; padding: 7px 12px; }
   .tray .shared { position: absolute; bottom: calc(100% + 6px); left: 0; right: 0; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
 }
+.select-row { gap: 8px; margin: -4px 0 12px; }
