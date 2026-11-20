@@ -200,6 +200,8 @@ async function processChunk(
     if (s.media_type === "video" && ad.format !== "video") continue;
     if (s.media_type === "image" && ad.format === "video") continue;
     if (ads.some((x) => x.ad.ad_archive_id === ad.ad_archive_id)) continue;
+    // Los anuncios del propio cliente no sirven como referencia de competencia
+    if (ctx.client && ad.page_name && ad.page_name.toLowerCase().includes(ctx.client.name.toLowerCase())) continue;
     ads.push({ ad, query: src ? `${src.q} (${src.country})` : "búsqueda" });
   }
 
@@ -307,6 +309,56 @@ async function storeMedia(adId: string, media: MediaItem[]): Promise<MediaItem[]
 }
 
 // ---------- Avanzar todo (pg_cron cada minuto) ----------
+// Analiza con IA anuncios ya guardados que quedaron sin análisis (por ejemplo, si la clave de Claude falló)
+async function reanalyze(clientId: string | null): Promise<{ analyzed: number; remaining: number }> {
+  const { data: rows } = await db
+    .from("ads_view")
+    .select("id, ad_archive_id, page_name, body, title, format, days_active, variations, media, start_date, end_date, is_active, countries, publisher_platforms")
+    .is("hook", null)
+    .or("relevant.is.null,relevant.eq.true")
+    .limit(CHUNK);
+  if (!rows?.length) return { analyzed: 0, remaining: 0 };
+  const client = await loadClient(clientId);
+  const tags = await classifyAds(
+    client?.rubro ?? "calzado",
+    client,
+    rows.map((r: any) => ({
+      id: r.ad_archive_id,
+      page_name: r.page_name,
+      body: r.body,
+      title: r.title,
+      format: r.format,
+      days_active: r.days_active,
+      variations: r.variations,
+      image_url: (r.media ?? []).find((m: MediaItem) => m.type === "image")?.url ?? r.media?.[0]?.thumb ?? null,
+    })),
+    undefined,
+    { apiKey: ANTHROPIC_KEY, model: CLAUDE_MODEL },
+  );
+  let analyzed = 0;
+  for (const r of rows as any[]) {
+    const t = tags.get(r.ad_archive_id);
+    if (!t) continue;
+    await db
+      .from("ads")
+      .update({
+        relevant: t.relevant,
+        angle: t.angle,
+        hook: t.hook,
+        hook_type: t.hook_type,
+        why_it_works: t.why_it_works,
+        adaptation: t.adaptation,
+        ai_score: t.ai_score,
+        ai_summary: t.summary,
+        score: winnerScore(r, t.ai_score),
+      })
+      .eq("id", r.id);
+    analyzed++;
+  }
+  const { count } = await db.from("ads").select("id", { count: "exact", head: true }).is("hook", null).or("relevant.is.null,relevant.eq.true");
+  return { analyzed, remaining: analyzed === 0 ? 0 : (count ?? 0) };
+}
+
 async function tickAll(t0: number) {
   // Arrancar pendientes y semanales vencidas
   const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString();
@@ -370,6 +422,17 @@ Deno.serve(async (req) => {
   }
 
   // tick: no cambia nada que no esté ya pedido, así que puede llamarlo el cron, el webhook de Apify o la app
+  if (action === "reanalyze") {
+    const clientId: string | null = body.client_id ?? url.searchParams.get("client_id");
+    const r = await reanalyze(clientId);
+    if (r.remaining > 0) {
+      const p = fetch(`${SELF_URL}?action=reanalyze${clientId ? `&client_id=${clientId}` : ""}`, { method: "POST" }).catch(() => {});
+      // @ts-ignore EdgeRuntime existe en Supabase
+      globalThis.EdgeRuntime?.waitUntil?.(p);
+    }
+    return json({ ok: true, ...r });
+  }
+
   if (searchId) {
     const r = await tick(searchId, t0);
     if (r === "more") continueLater(searchId);
