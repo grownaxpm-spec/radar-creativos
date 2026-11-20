@@ -6,6 +6,10 @@ Buscador de referencias de anuncios (Biblioteca de Anuncios de Meta) para armar 
 
 ## Cómo está armado (todo en planes gratis)
 
+> **Novedad:** el buscador ahora corre dentro de Supabase (Edge Function `search-worker`, avanzada cada minuto por `pg_cron`).
+> Secretos en Supabase → Edge Functions → Secrets: `APIFY_TOKEN` y `ANTHROPIC_API_KEY`. El flujo por GitHub Actions queda como alternativa manual.
+> Después de cambiar `scraper/*.ts`, correr `./scripts-sync-edge.sh` y volver a desplegar la función.
+
 | Parte | Servicio | Dónde está en el código |
 |---|---|---|
 | Aplicación web | Vercel (o Cloudflare Pages) | `src/`, `vercel.json` |

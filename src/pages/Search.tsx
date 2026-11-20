@@ -18,7 +18,27 @@ export default function SearchPage() {
   const [msg, setMsg] = useState<string | null>(null);
 
   const load = () =>
-    supabase.from("searches").select("*").order("created_at", { ascending: false }).limit(30).then(({ data }) => setList(data ?? []));
+    supabase
+      .from("searches")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(30)
+      .then(({ data }) => {
+        setList(data ?? []);
+        // Mientras mirás, empujamos al robot para que el avance sea más rápido (igual corre solo cada minuto)
+        for (const s of data ?? []) if (s.status === "running") void supabase.functions.invoke("search-worker", { body: { action: "tick", search_id: s.id } });
+      });
+
+  // Arranca la búsqueda en el robot de Supabase
+  async function kick(id: string): Promise<string | null> {
+    const { data, error } = await supabase.functions.invoke("search-worker", { body: { action: "start", search_id: id } });
+    if (error) {
+      const ctx = (error as { context?: Response }).context;
+      const body = ctx ? await ctx.json().catch(() => null) : null;
+      return body?.error ?? error.message;
+    }
+    return data?.ok === false ? (data.error ?? "No pude arrancarla") : null;
+  }
 
   useEffect(() => {
     supabase.from("clients").select("*").order("name").then(({ data }) => setClients(data ?? []));
@@ -37,15 +57,9 @@ export default function SearchPage() {
   }, [clientId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function runNow(id: string) {
-    await supabase.from("searches").update({ status: "pending", error: null }).eq("id", id);
-    const { data: sess } = await supabase.auth.getSession();
-    const res = await fetch("/api/start-search", {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${sess.session?.access_token}` },
-      body: JSON.stringify({ search_id: id }),
-    });
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) alert(`No pude arrancarla: ${body.error ?? res.status}`);
+    await supabase.from("searches").update({ status: "pending", error: null, apify_run_id: null, apify_dataset_id: null }).eq("id", id);
+    const err = await kick(id);
+    if (err) alert(`No pude arrancarla: ${err}`);
     load();
   }
 
@@ -74,17 +88,11 @@ export default function SearchPage() {
       setBusy(false);
       return;
     }
-    const { data: sess } = await supabase.auth.getSession();
-    const res = await fetch("/api/start-search", {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${sess.session?.access_token}` },
-      body: JSON.stringify({ search_id: s.id }),
-    });
-    const body = await res.json().catch(() => ({}));
+    const err = await kick(s.id);
     setMsg(
-      res.ok
-        ? "Búsqueda en marcha. Tarda unos minutos; cuando diga “Lista” la ves en la Biblioteca."
-        : `La búsqueda quedó en cola, pero no pude arrancarla ahora (${body.error ?? res.status}). Se corre sola en la próxima pasada diaria.`,
+      err
+        ? `La búsqueda quedó guardada, pero no pude arrancarla: ${err}`
+        : "Búsqueda en marcha. Mirá el avance en la lista de la derecha; cuando diga “Lista” la ves en la Biblioteca.",
     );
     setBusy(false);
     load();
@@ -180,8 +188,7 @@ export default function SearchPage() {
                 )}
                 {s.status === "pending" && Date.now() - new Date(s.created_at).getTime() > 10 * 60000 && (
                   <div className="small muted">
-                    Sigue en cola hace rato. Apretá “Correr ahora” o revisá{" "}
-                    <a href="https://github.com/grownaxpm-spec/radar-creativos/actions" target="_blank" rel="noreferrer">GitHub Actions ↗</a>
+                    Sigue en cola hace rato. Apretá “Correr ahora”.
                   </div>
                 )}
                 {s.error && <div className="error small">{s.error}</div>}

@@ -32,6 +32,57 @@ export function sourceUrlOf(item: Record<string, any>, startUrls: string[]): str
   return null;
 }
 
+function actorInput(startUrls: string[], limitPerUrl: number) {
+  return {
+    // apify/facebook-ads-scraper
+    startUrls: startUrls.map((url) => ({ url })),
+    resultsLimit: limitPerUrl,
+    // otros actores populares usan estos nombres:
+    urls: startUrls.map((url) => ({ url })),
+    count: limitPerUrl,
+  };
+}
+
+/** Arranca la corrida y vuelve enseguida. Si se pasa webhookUrl, Apify lo llama al terminar. */
+export async function startRun(
+  startUrls: string[],
+  limitPerUrl: number,
+  opts: { token: string; actor: string; webhookUrl?: string },
+): Promise<{ runId: string; datasetId: string }> {
+  const actor = opts.actor.replace("/", "~");
+  let url = `${API}/acts/${actor}/runs?token=${opts.token}`;
+  if (opts.webhookUrl) {
+    const hooks = [
+      {
+        eventTypes: ["ACTOR.RUN.SUCCEEDED", "ACTOR.RUN.FAILED", "ACTOR.RUN.TIMED_OUT", "ACTOR.RUN.ABORTED"],
+        requestUrl: opts.webhookUrl,
+      },
+    ];
+    url += `&webhooks=${encodeURIComponent(btoa(JSON.stringify(hooks)))}`;
+  }
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(actorInput(startUrls, limitPerUrl)),
+  });
+  if (!res.ok) throw new Error(`Apify no arrancó (${res.status}): ${(await res.text()).slice(0, 300)}`);
+  const run = (await res.json()).data;
+  return { runId: run.id, datasetId: run.defaultDatasetId };
+}
+
+export async function getRun(runId: string, datasetId: string, token: string): Promise<{ status: string; itemCount: number }> {
+  const r = await fetch(`${API}/actor-runs/${runId}?token=${token}`).then((x) => x.json());
+  const ds = await fetch(`${API}/datasets/${datasetId}?token=${token}`).then((x) => x.json()).catch(() => null);
+  return { status: r?.data?.status ?? "UNKNOWN", itemCount: ds?.data?.itemCount ?? 0 };
+}
+
+export async function getItems(datasetId: string, token: string, offset: number, limit: number): Promise<Record<string, any>[]> {
+  const res = await fetch(`${API}/datasets/${datasetId}/items?clean=true&format=json&offset=${offset}&limit=${limit}&token=${token}`);
+  if (!res.ok) throw new Error(`No pude leer resultados de Apify (${res.status})`);
+  const data = await res.json();
+  return Array.isArray(data) ? data : [];
+}
+
 export async function runActorBatch(
   startUrls: string[],
   limitPerUrl: number,

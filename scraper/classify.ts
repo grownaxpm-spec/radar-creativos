@@ -72,17 +72,24 @@ export type AdForAI = {
   image_url?: string | null;
 };
 
+// Funciona igual en Node y en Deno (servidor de Supabase)
+function toBase64(bytes: Uint8Array): string {
+  let s = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+
 async function imageBlock(url: string | null | undefined): Promise<Anthropic.ImageBlockParam | null> {
   if (!url) return null;
   try {
     const res = await fetch(url);
     const type = res.headers.get("content-type") ?? "";
     if (!res.ok || !/^image\/(jpeg|png|webp|gif)/.test(type)) return null;
-    const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.length > 4_500_000) return null;
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    if (bytes.length > 4_500_000) return null;
     return {
       type: "image",
-      source: { type: "base64", media_type: type.split(";")[0] as "image/jpeg", data: buf.toString("base64") },
+      source: { type: "base64", media_type: type.split(";")[0] as "image/jpeg", data: toBase64(bytes) },
     };
   } catch {
     return null;
@@ -121,11 +128,12 @@ export async function classifyAds(
   client: ClientProfile | null,
   ads: AdForAI[],
   onBatch?: (done: number, total: number) => unknown,
+  opts: { apiKey?: string; model?: string } = {},
 ): Promise<Map<string, Classification>> {
   const out = new Map<string, Classification>();
-  if (!process.env.ANTHROPIC_API_KEY || ads.length === 0) return out;
-  const anthropic = new Anthropic();
-  const model = process.env.CLAUDE_MODEL || "claude-haiku-5-5";
+  if (!opts.apiKey || ads.length === 0) return out;
+  const anthropic = new Anthropic({ apiKey: opts.apiKey });
+  const model = opts.model || "claude-haiku-5-5";
   const sys = system(rubro, client);
 
   for (let i = 0; i < ads.length; i += 8) {

@@ -109,6 +109,7 @@ async function processSearch(s: Search) {
       image_url: ad.media.find((m) => m.type === "image")?.url ?? ad.media[0]?.thumb ?? null,
     })),
     (i, total) => progress(`Analizando con IA… ${i}/${total} anuncios`, 50 + (i / total) * 25),
+    { apiKey: process.env.ANTHROPIC_API_KEY, model: process.env.CLAUDE_MODEL },
   );
   console.log(`  IA: ${tags.size} anuncios analizados`);
 
