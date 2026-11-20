@@ -45,6 +45,8 @@ const adSummary = (a: any) => ({
   imagen: a.media?.find((m: any) => m.type === "image")?.url ?? a.media?.[0]?.thumb ?? null,
   ficha_meta: a.snapshot_url,
   metricas: a.metrics ?? undefined,
+  venta_directa: a.direct_sale ?? undefined,
+  activo: a.is_active ?? undefined,
   // Lo que la IA vio en el video completo (imagen + audio), si ya se analizó
   video_analizado: a.video_analysis
     ? {
@@ -141,13 +143,19 @@ const TOOLS: Tool[] = [
         formato: { type: "string", enum: ["video", "image", "carousel"], description: "Formato" },
         texto: str("Buscar en marca, texto o hook"),
         solo_hooks: bool("Solo videos que tienen hook analizado"),
+        solo_venta_directa: bool("Solo anuncios de venta directa (oferta, precio, cuotas, llamado a comprar). Usalo para eventos como Black Friday, Cyber o Hot Sale"),
+        solo_del_cliente: bool("Solo los anuncios que trajeron las búsquedas de ese cliente"),
+        ocultar_usados: bool("Esconder los anuncios que ya se usaron en pedidos de ese cliente"),
         fuente: { type: "string", enum: ["competencia", "propio"], description: "Solo competencia o solo anuncios propios del cliente" },
         limite: num("Cantidad máxima (por defecto 20)"),
       },
     },
     run: async (a) => {
       const client = await findClient(a.cliente);
-      let q = db.from("ads_view").select("*").or("relevant.is.null,relevant.eq.true");
+      let q = (a.solo_del_cliente && client ? db.from("client_ads").select("*").eq("client_id", client.id) : db.from("ads_view").select("*")).or(
+        "relevant.is.null,relevant.eq.true",
+      );
+      if (a.solo_venta_directa) q = q.eq("direct_sale", true);
       if (a.angulo) q = q.ilike("angle", `%${a.angulo}%`);
       if (a.tipo_hook) q = q.ilike("hook_type", `%${a.tipo_hook}%`);
       if (a.solo_hooks) q = q.eq("format", "video").not("hook", "is", null);
@@ -160,6 +168,10 @@ const TOOLS: Tool[] = [
       if (client) {
         const { data: d } = await db.from("discards").select("ad_id").or(`client_id.is.null,client_id.eq.${client.id}`);
         const out = new Set((d ?? []).map((x) => x.ad_id));
+        if (a.ocultar_usados) {
+          const { data: u } = await db.from("used_ads").select("ad_id").eq("client_id", client.id);
+          for (const x of u ?? []) out.add(x.ad_id);
+        }
         rows = rows.filter((r: any) => !out.has(r.id));
       }
       return { total: rows.length, anuncios: rows.map(adSummary), ver_en_la_app: `${APP_URL}/biblioteca` };
@@ -168,14 +180,15 @@ const TOOLS: Tool[] = [
   {
     name: "empezar_busqueda",
     description:
-      "Empieza una búsqueda nueva de anuncios de la competencia en la Biblioteca de Meta para un cliente. Usa sus palabras clave y competidores si no se pasan otras. Tarda unos minutos; consultá el avance con estado_busquedas.",
+      "Empieza una búsqueda nueva de anuncios de la competencia en la Biblioteca de Meta para un cliente. Usa sus palabras clave y competidores si no se pasan otras. No fuerza un número por país: trae un total repartido libremente. Si es para un evento (Black Friday, Cyber Monday, Hot Sale…) solo guarda anuncios de venta directa. Descarta marketplaces y anuncios de catálogo. Tarda unos minutos; consultá el avance con estado_busquedas.",
     inputSchema: {
       type: "object",
       properties: {
         cliente: str("Nombre del cliente"),
         palabras_clave: arr("Palabras clave o marcas a buscar (opcional)"),
-        paises: arr("Códigos de país, ej. AR, UY, CL, MX, ES (por defecto AR)"),
-        anuncios_por_palabra: num("Anuncios por palabra y país (por defecto 15)"),
+        paises: arr("Códigos de país, ej. AR, UY, CL, MX, ES (por defecto AR, ES, MX, US, CO y CL)"),
+        total: num("Cantidad total de anuncios aproximada, entre todos los países (por defecto 150)"),
+        evento: str("Evento para el que se busca (Black Friday, Cyber Monday, Hot Sale, Navidad…). Vacío = Always On"),
         semanal: bool("Repetir cada semana"),
       },
       required: ["cliente"],
@@ -183,14 +196,19 @@ const TOOLS: Tool[] = [
     run: async (a) => {
       const client = await findClient(a.cliente);
       const keywords = a.palabras_clave?.length ? a.palabras_clave : [...(client.keywords ?? []), ...(client.competitors ?? [])];
+      const countries = a.paises?.length ? a.paises.map((x: string) => x.toUpperCase()) : ["AR", "ES", "MX", "US", "CO", "CL"];
+      const total = Math.min(Math.max(Number(a.total) || 150, 20), 1000);
+      const nq = Math.max(1, keywords.length || 1) * countries.length;
       const { data: s, error } = await db
         .from("searches")
         .insert({
           client_id: client.id,
           rubro: client.rubro ?? client.name,
           keywords: keywords.length ? keywords : [client.rubro ?? client.name],
-          countries: a.paises?.length ? a.paises.map((x: string) => x.toUpperCase()) : ["AR"],
-          max_per_query: Math.min(Number(a.anuncios_por_palabra) || 15, 100),
+          countries,
+          max_total: total,
+          max_per_query: Math.max(10, Math.min(100, Math.ceil((total * 1.5) / nq))),
+          event: a.evento?.trim() || null,
           recurring: !!a.semanal,
           created_by: "claude (conector)",
         })
@@ -199,7 +217,7 @@ const TOOLS: Tool[] = [
       if (error) throw error;
       // El robot toma las pendientes; lo empujamos para que arranque ya
       fetch(WORKER_URL, { method: "POST", headers: { "content-type": "application/json" }, body: '{"action":"tick"}' }).catch(() => {});
-      return { busqueda_id: s.id, estado: "en marcha", palabras_clave: s.keywords, paises: s.countries, ver_avance: `${APP_URL}/busquedas` };
+      return { busqueda_id: s.id, estado: "en marcha", evento: s.event, total: s.max_total, palabras_clave: s.keywords, paises: s.countries, ver_avance: `${APP_URL}/clientes/${client.id}?tab=busquedas` };
     },
   },
   {
@@ -282,6 +300,9 @@ const TOOLS: Tool[] = [
       properties: {
         cliente: str("Nombre del cliente"),
         anuncio_ids: arr("IDs de los anuncios de referencia, en el orden de las piezas"),
+        hook_ids: arr("IDs de videos cuyo hook (primeros 5 s) va en la sección Hooks sugeridos del link"),
+        entrega_drive: str("Link de Drive donde entregar los creativos (por defecto, la carpeta de creativos del cliente)"),
+        adaptaciones: str("Adaptaciones que se piden, ej. 'Vertical 9:16 y feed 4:5' (por defecto según la plataforma)"),
         tipo: { type: "string", enum: ["aon", "evento"], description: "Always On o evento" },
         evento: str("Nombre del evento (Black Friday, Cyber Monday, Hot Sale…)"),
         fecha_evento: str("YYYY-MM-DD"),
@@ -308,6 +329,7 @@ const TOOLS: Tool[] = [
           title, client_id: client.id, kind, event_name: kind === "evento" ? a.evento ?? null : null, event_date: a.fecha_evento ?? null,
           period: kind === "aon" ? period : null, detail_level: a.nivel_detalle ?? "completo", platform: a.plataforma ?? "Meta",
           objective: a.objetivo ?? null, notes: a.notas ?? null, deadline: a.entrega ?? null, created_by: "claude (conector)",
+          hook_ad_ids: a.hook_ids ?? [], delivery_url: a.entrega_drive ?? null, formats: a.adaptaciones ?? null,
         })
         .select()
         .single();

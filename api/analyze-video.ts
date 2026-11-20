@@ -6,7 +6,7 @@
 import { generateText, Output } from "ai";
 import { z } from "zod";
 
-const MODEL = process.env.VIDEO_MODEL || "google/gemini-3-flash";
+const MODEL = process.env.VIDEO_MODEL || "google/gemini-2.5-flash";
 
 export const VideoAnalysis = z.object({
   duracion_seg: z.number().describe("Duración aproximada del video en segundos"),
