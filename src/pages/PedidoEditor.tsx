@@ -263,7 +263,7 @@ Leé el link, respetá la estructura y los guiones que ya están, y mejoralos si
               )}
               {showRec && (
                 <div className="profile-grid">
-                  <label>Cómo grabarlo<textarea rows={3} value={it.recording_tips ?? ""} onChange={(e) => setItem(k, { recording_tips: e.target.value })} /></label>
+                  <label>{img ? "Cómo producirla (foto y diseño)" : "Cómo grabarlo"}<textarea rows={3} value={it.recording_tips ?? ""} onChange={(e) => setItem(k, { recording_tips: e.target.value })} /></label>
                   <label>Duración<input value={it.duration ?? ""} onChange={(e) => setItem(k, { duration: e.target.value })} placeholder="45-60 s" /></label>
                 </div>
               )}

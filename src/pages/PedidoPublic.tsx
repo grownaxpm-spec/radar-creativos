@@ -73,7 +73,23 @@ function Text({ text }: { text: string }) {
   return <>{text.split(/\n+/).map((l, i) => <p key={i}>{l}</p>)}</>;
 }
 
-const isImage = (it: Item) => (!!(it.scene || it.headline) && !it.hook) || (!it.hook && it.ref != null && it.ref.format !== "video");
+/** Qué tipo de pieza es: define si lleva guion (video) o indicaciones para armar la imagen o el carrusel */
+type Kind = "video" | "image" | "carousel";
+function pieceKind(it: Item): Kind {
+  const f = (it.format ?? "").toLowerCase();
+  if (/carrusel|carousel/.test(f)) return "carousel";
+  if (/reel|video|story|historia/.test(f)) return "video";
+  if (/imagen|est[aá]tico|feed|post|placa|flyer/.test(f)) return "image";
+  if (it.ref?.format === "carousel") return "carousel";
+  if (it.ref?.format === "image") return "image";
+  if (it.ref?.format === "video") return "video";
+  return (it.scene || it.headline) && !it.hook ? "image" : "video";
+}
+const LABELS: Record<Kind, { main: string; tips: string; scene: string }> = {
+  video: { main: "Guion sugerido", tips: "Cómo grabarlo", scene: "Escena" },
+  image: { main: "Cómo armar la imagen", tips: "Cómo producirla", scene: "Imagen" },
+  carousel: { main: "Cómo armar el carrusel", tips: "Cómo producirlo", scene: "Slides" },
+};
 
 export default function PedidoPublic() {
   const { slug } = useParams();
@@ -132,7 +148,9 @@ export default function PedidoPublic() {
 
         <section>
           {p.items.map((it, i) => {
-            const img = isImage(it);
+            const kind = pieceKind(it);
+            const img = kind !== "video";
+            const L = LABELS[kind];
             return (
               <article className="item" key={it.position}>
                 <div className="ref">
@@ -154,12 +172,13 @@ export default function PedidoPublic() {
                   {it.title && <h3>{it.title}</h3>}
                   {it.ref_beats && <p className="beats">{it.ref_beats}</p>}
 
-                  <h4>Guion sugerido</h4>
+                  <h4>{L.main}</h4>
                   {img ? (
                     <dl className="script">
-                      {it.scene && (<><dt>Imagen</dt><dd><Text text={it.scene} /></dd></>)}
+                      {it.scene && (<><dt>{L.scene}</dt><dd><Text text={it.scene} /></dd></>)}
                       {it.headline && (<><dt>Titular</dt><dd><Text text={it.headline} /></dd></>)}
                       {it.subhead && (<><dt>Bajada</dt><dd><Text text={it.subhead} /></dd></>)}
+                      {!it.scene && !it.headline && it.hook && (<><dt>Idea</dt><dd><Text text={it.hook} /></dd></>)}
                     </dl>
                   ) : (
                     <dl className="script">
@@ -169,11 +188,11 @@ export default function PedidoPublic() {
                       {it.script && !it.hook && (<><dt>Guion</dt><dd><Text text={it.script} /></dd></>)}
                     </dl>
                   )}
-                  {!it.hook && !it.scene && !it.headline && !it.script && <p className="muted">Guion a definir.</p>}
+                  {!it.hook && !it.scene && !it.headline && !it.script && <p className="muted">{img ? "A definir." : "Guion a definir."}</p>}
 
                   {it.recording_tips && (
                     <>
-                      <h4>Cómo grabarlo</h4>
+                      <h4>{L.tips}</h4>
                       <Text text={it.recording_tips} />
                     </>
                   )}
