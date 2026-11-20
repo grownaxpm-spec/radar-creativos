@@ -294,3 +294,23 @@ ol.scenes .t { font-family: var(--gx-font-mono); color: var(--gx-blue); font-siz
   .modal:not(.narrow) .analysis { max-height: none; overflow: visible; }
   .modal .media.large, .modal .media.large video, .modal .media.large img { max-height: 60vh; }
 }
+
+/* ---- Casillas Ref / Hook en la vista grande y barra de selección encima ---- */
+.modal-media { position: relative; }
+.picks.modal-picks { position: absolute; top: 10px; left: 10px; z-index: 4; display: flex; gap: 6px; }
+.picks.modal-picks .pick { display: flex; flex-direction: row; align-items: center; gap: 6px; margin: 0; background: rgba(0,0,0,.65); color: #fff; border-radius: 8px; padding: 6px 10px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.picks.modal-picks .pick input { width: 18px; height: 18px; margin: 0; cursor: pointer; }
+.tray.over-modal { z-index: 30; box-shadow: var(--gx-shadow-lg); }
+/* deja lugar abajo para la barra de selección */
+@media (min-width: 761px) {
+  .modal-bg { padding-top: 12px; padding-bottom: 84px; }
+  .modal:not(.narrow) { max-height: calc(100vh - 100px); }
+  .modal .media.large, .modal .media.large video, .modal .media.large img { max-height: calc(100vh - 200px); }
+  .modal:not(.narrow) .analysis { max-height: calc(100vh - 150px); }
+}
+@media (min-width: 900px) {
+  .tray { flex-wrap: nowrap; gap: 8px; padding: 8px 12px; }
+  .tray > span { white-space: nowrap; }
+  .tray button { font-size: 14px; padding: 7px 12px; }
+  .tray .shared { position: absolute; bottom: calc(100% + 6px); left: 0; right: 0; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
+}

@@ -257,7 +257,11 @@ export function AdModal({
     // Las flechas del teclado pasan al anuncio anterior o siguiente (también con el video en foco)
     const k = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
-      else if ((e.key === "ArrowRight" || e.key === "ArrowLeft") && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) {
+      else if ((e.key === "ArrowRight" || e.key === "ArrowLeft") && !(
+          (e.target instanceof HTMLInputElement && !["checkbox", "radio"].includes(e.target.type)) ||
+          e.target instanceof HTMLTextAreaElement ||
+          e.target instanceof HTMLSelectElement
+        )) {
         const go = e.key === "ArrowRight" ? onNext : onPrev;
         if (!go) return;
         e.preventDefault();
@@ -281,7 +285,17 @@ export function AdModal({
         <button className="ghost small close" onClick={onClose}>✕</button>
         {position && <span className="modal-pos">{position} · usá ← → para pasar</span>}
         <div className="modal-grid">
-          <div>
+          <div className="modal-media">
+            <div className="picks modal-picks">
+              <label className="pick" title="Usarlo como referencia de una pieza del pedido">
+                <input type="checkbox" checked={selected} onChange={onSelect} /> Ref
+              </label>
+              {isVideo && (
+                <label className="pick" title="Sumar su hook (primeros 5 s) a los hooks sugeridos del pedido">
+                  <input type="checkbox" checked={hookSelected} onChange={onSelectHook} /> Hook
+                </label>
+              )}
+            </div>
             <MediaView media={ad.media} large clip={clip} />
             {isVideo && (
               <label className="check small" style={{ marginTop: 8 }}>

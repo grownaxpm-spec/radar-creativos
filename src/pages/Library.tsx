@@ -337,14 +337,14 @@ export default function Library({ fixedClientId, hooksOnly }: { fixedClientId?: 
       )}
 
       {(sel.ids.length > 0 || sel.hookIds.length > 0) && (
-        <div className="tray">
+        <div className={`tray ${open ? "over-modal" : ""}`}>
           <span>
             <b>{sel.ids.length}</b> referencias · <b>{sel.hookIds.length}</b> hooks{clientName ? ` para ${clientName}` : ""}
           </span>
           <button className="ghost small" onClick={() => { sel.clear(); setShared(null); }}>Limpiar</button>
-          <button className="ghost" onClick={() => setGroupDialog(true)}>Guardar como grupo</button>
+          <button className="ghost" onClick={() => { setOpen(null); setGroupDialog(true); }}>Guardar como grupo</button>
           <button className="ghost" onClick={shareRefs} disabled={sel.ids.length === 0}>Compartir referencias</button>
-          <button onClick={() => setDialog(true)} disabled={sel.ids.length === 0}>Crear pedido de creativos →</button>
+          <button onClick={() => { setOpen(null); setDialog(true); }} disabled={sel.ids.length === 0}>Crear pedido de creativos →</button>
           {shared && (
             <div className="shared">
               Link copiado: <a href={shared} target="_blank" rel="noreferrer">{shared}</a>
