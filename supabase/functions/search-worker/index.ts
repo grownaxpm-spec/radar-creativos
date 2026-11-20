@@ -288,8 +288,11 @@ async function saveAd(searchId: string, ad: NormalizedAd, query: string, t: any)
     Array.isArray(existing?.media) && existing.media.length > 0 && existing.media.every((m: MediaItem) => !/fbcdn|facebook\.com/.test(m.url));
   const media = alreadyStored ? existing!.media : await storeMedia(ad.ad_archive_id, ad.media);
   const { is_catalog: _catalog, ...fields } = ad;
+  // Si después de sacar las repetidas queda una sola imagen, no es carrusel
+  const format = fields.format === "carousel" && media.length <= 1 ? (media[0]?.type === "video" ? "video" : "image") : fields.format;
   const row = {
     ...fields,
+    format,
     media,
     countries: [...new Set([...(existing?.countries ?? []), ...ad.countries])],
     last_seen: new Date().toISOString(),
@@ -319,13 +322,19 @@ async function saveAd(searchId: string, ad: NormalizedAd, query: string, t: any)
 
 // Copia videos e imágenes a Supabase Storage (los links de Meta vencen en pocos días)
 const MAX_BYTES = 20 * 1024 * 1024; // videos más pesados quedan con el link de Meta
-async function copy(url: string, key: string): Promise<string | null> {
+async function copy(url: string, key: string, seen?: Set<string>): Promise<string | "dup" | null> {
   try {
     const res = await fetch(url);
     if (!res.ok) return null;
     if (Number(res.headers.get("content-length") ?? 0) > MAX_BYTES) return null;
     const bytes = new Uint8Array(await res.arrayBuffer());
     if (bytes.length > MAX_BYTES) return null;
+    // Meta repite la misma imagen con distintos links: si el contenido ya está, no se guarda de nuevo
+    if (seen) {
+      const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-1", bytes)), (b) => b.toString(16).padStart(2, "0")).join("");
+      if (seen.has(hash)) return "dup";
+      seen.add(hash);
+    }
     const { error } = await db.storage
       .from("media")
       .upload(key, bytes, { contentType: res.headers.get("content-type") ?? undefined, upsert: true, cacheControl: "31536000" });
@@ -337,10 +346,14 @@ async function copy(url: string, key: string): Promise<string | null> {
 }
 async function storeMedia(adId: string, media: MediaItem[]): Promise<MediaItem[]> {
   const out: MediaItem[] = [];
-  for (const [i, m] of media.slice(0, 4).entries()) {
+  const seen = new Set<string>();
+  for (const [i, m] of media.slice(0, 6).entries()) {
     const ext = m.type === "video" ? "mp4" : "jpg";
-    const url = (await copy(m.url, `meta/${adId}/${i}.${ext}`)) ?? m.url;
-    const thumb = m.thumb ? ((await copy(m.thumb, `meta/${adId}/${i}-thumb.jpg`)) ?? m.thumb) : null;
+    const copied = await copy(m.url, `meta/${adId}/${i}.${ext}`, seen);
+    if (copied === "dup") continue;
+    const url = copied ?? m.url;
+    const t = m.thumb ? await copy(m.thumb, `meta/${adId}/${i}-thumb.jpg`) : null;
+    const thumb = m.thumb ? (t && t !== "dup" ? t : m.thumb) : null;
     out.push({ ...m, url, thumb });
   }
   return out;
@@ -569,16 +582,10 @@ function continueLater(searchId: string) {
   globalThis.EdgeRuntime?.waitUntil?.(p);
 }
 
-async function isTeam(authHeader: string | null): Promise<boolean> {
-  const jwt = authHeader?.replace(/^Bearer\s+/i, "");
-  if (!jwt) return false;
-  const { data } = await db.auth.getUser(jwt);
-  const email = data.user?.email?.toLowerCase();
-  if (!email) return false;
-  const { data: member } = await db.from("team_members").select("email").ilike("email", email).maybeSingle();
-  return !!member;
+// Acceso libre: la herramienta se usa sin login, así que cualquiera puede arrancar búsquedas y pedidos
+async function isTeam(_authHeader: string | null): Promise<boolean> {
+  return true;
 }
-
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   const t0 = Date.now();

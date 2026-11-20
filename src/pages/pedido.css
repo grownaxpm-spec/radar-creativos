@@ -73,3 +73,4 @@
 .ped .hook-track { flex: 1; height: 4px; border-radius: 4px; background: rgba(255,255,255,.3); overflow: hidden; }
 .ped .hook-track > div { height: 100%; background: #fff; transition: width .1s linear; }
 .ped .hook-time { font-size: 10px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ped .ref img { aspect-ratio: auto; height: auto; object-fit: contain; }

@@ -11,7 +11,6 @@ import Pedidos from "./pages/Pedidos.tsx";
 import PedidoEditor from "./pages/PedidoEditor.tsx";
 import PedidoPublic from "./pages/PedidoPublic.tsx";
 import RefsPublic from "./pages/RefsPublic.tsx";
-import Login from "./pages/Login.tsx";
 
 // ---- Selección para armar un pedido (persiste en el navegador) ----
 // ids: referencias (una pieza por cada una) · hookIds: videos cuyo hook de 5 s va en "Hooks sugeridos"
@@ -66,8 +65,8 @@ export default function App() {
     );
   }
 
+  // Acceso libre: no se pide login (cualquiera con el link entra)
   if (session === undefined) return <div className="center muted">Cargando…</div>;
-  if (!session) return <Login />;
 
   const sel: Sel = {
     ids,
@@ -88,9 +87,6 @@ export default function App() {
           <img src="/grownax-logo.png" alt="Grownax" />
         </NavLink>
         <span className="grow" />
-        <button className="ghost small" onClick={() => supabase.auth.signOut()}>
-          Salir
-        </button>
       </header>
       <main>
         <Routes>
