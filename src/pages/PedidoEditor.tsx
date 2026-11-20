@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { DETAIL_LEVELS, PIECE_FORMATS, supabase, type Ad, type Client, type DetailLevel, type Pedido, type PedidoItem } from "../lib.ts";
 import { MediaView } from "./AdCard.tsx";
+import { defaultFormats } from "./PedidoPublic.tsx";
 
 type Item = PedidoItem & { ad?: Ad };
 type FullPedido = Pedido & { ai_status: string | null; ai_error: string | null };
@@ -179,8 +180,24 @@ Leé el link, respetá la estructura y los guiones que ya están, y mejoralos si
         </div>
         <label>Objetivo / foco<input value={p.objective ?? ""} onChange={(e) => setP({ ...p, objective: e.target.value || null })} /></label>
         <label>Info extra (precios, promos, restricciones)<textarea rows={2} value={p.notes ?? ""} onChange={(e) => setP({ ...p, notes: e.target.value || null })} /></label>
-        <label>Texto de portada<textarea rows={2} value={p.intro ?? ""} onChange={(e) => setP({ ...p, intro: e.target.value || null })} /></label>
-        <label>Lo que no cambia en ninguna pieza<textarea rows={2} value={p.refs_note ?? ""} onChange={(e) => setP({ ...p, refs_note: e.target.value || null })} /></label>
+        <label>Descripción<textarea rows={2} value={p.intro ?? ""} onChange={(e) => setP({ ...p, intro: e.target.value || null })} /></label>
+        <div className="two-col">
+          <label>
+            Dónde entregar (link de Drive)
+            <input
+              value={p.delivery_url ?? ""}
+              onChange={(e) => setP({ ...p, delivery_url: e.target.value || null })}
+              placeholder={client?.creativos_folder_url ?? client?.drive_folder_url ?? "https://drive.google.com/…"}
+            />
+            <span className="muted small">Si queda vacío, va la carpeta de creativos del cliente.</span>
+          </label>
+          <label>
+            Adaptaciones
+            <input value={p.formats ?? ""} onChange={(e) => setP({ ...p, formats: e.target.value || null })} placeholder={defaultFormats(p.platform)} />
+            <span className="muted small">Si queda vacío: {defaultFormats(p.platform)}.</span>
+          </label>
+        </div>
+        <label>Lo que no cambia en ninguna pieza (va en aclaraciones)<textarea rows={2} value={p.refs_note ?? ""} onChange={(e) => setP({ ...p, refs_note: e.target.value || null })} /></label>
         <div className="row wrap small">
           <span className="muted">Link para el cliente:</span>
           <a href={publicUrl} target="_blank" rel="noreferrer">{publicUrl}</a>
@@ -268,9 +285,9 @@ Leé el link, respetá la estructura y los guiones que ya están, y mejoralos si
         <button className="ghost small" onClick={() => setP({ ...p, hooks: [...p.hooks, { hook: "", tipo: "" }] })}>+ Hook</button>
       </div>
 
-      {showFull && (
+      {(
         <div className="card">
-          <h2>Antes de grabar</h2>
+          <h2>Aclaraciones</h2>
           {p.before_notes.map((n, k) => (
             <div className="row" key={k} style={{ marginBottom: 6 }}>
               <textarea className="grow" rows={2} value={n} onChange={(e) => setP({ ...p, before_notes: p.before_notes.map((x, i) => (i === k ? e.target.value : x)) })} />

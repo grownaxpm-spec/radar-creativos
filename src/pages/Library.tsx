@@ -174,9 +174,9 @@ export default function Library() {
     <div>
       <div className="view-tabs">
         <button className={!hookMode ? "" : "ghost"} onClick={() => setParam("vista", "")}>Anuncios</button>
-        <button className={hookMode ? "" : "ghost"} onClick={() => setParam("vista", "hooks")}>Solo hooks (10 s)</button>
+        <button className={hookMode ? "" : "ghost"} onClick={() => setParam("vista", "hooks")}>Solo hooks (5 s)</button>
         <span className="muted small">
-          {hookMode ? "Cada video se reproduce solo en sus primeros 10 segundos, con el hook escrito abajo." : "Hacé clic en un anuncio para verlo en grande con el análisis."}
+          {hookMode ? "Cada video se reproduce solo en sus primeros 5 segundos, con el hook escrito abajo." : "Hacé clic en un anuncio para verlo en grande con el análisis."}
         </span>
       </div>
 

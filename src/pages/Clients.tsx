@@ -5,6 +5,8 @@ const EMPTY: Omit<Client, "id"> = {
   name: "",
   rubro: null,
   drive_folder_url: null,
+  creativos_folder_url: null,
+  logo_url: null,
   website: null,
   instagram: null,
   usp: null,
@@ -88,8 +90,19 @@ function ClientForm({ initial, onSaved, onCancel }: { initial: Client | null; on
         </label>
       </div>
       <label>
-        Carpeta de creativos en Drive (link)
+        Carpeta del cliente en Drive (link)
         <input value={c.drive_folder_url ?? ""} onChange={(e) => set({ drive_folder_url: txt(e.target.value) })} placeholder="https://drive.google.com/drive/folders/…" />
+      </label>
+      <label>
+        Carpeta donde se entregan los creativos (va en el link del pedido)
+        <input value={c.creativos_folder_url ?? ""} onChange={(e) => set({ creativos_folder_url: txt(e.target.value) })} placeholder="https://drive.google.com/drive/folders/… (Creativos del mes)" />
+      </label>
+      <label>
+        Logo del cliente (link a la imagen)
+        <span className="row">
+          <input value={c.logo_url ?? ""} onChange={(e) => set({ logo_url: txt(e.target.value) })} placeholder="https://…/logo.png" />
+          {c.logo_url && <img src={c.logo_url} alt="" style={{ height: 32, maxWidth: 120, objectFit: "contain" }} />}
+        </span>
       </label>
       <label>
         Notas (ofertas, fechas, productos foco…)

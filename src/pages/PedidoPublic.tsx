@@ -1,7 +1,10 @@
+// Link del pedido para el cliente: simple, fondo blanco, con el nombre y logo del cliente.
+// Arriba: título, descripción, fecha de entrega, dónde entregar (Drive) y adaptaciones.
+// Después, un bloque por creativo con la referencia a un costado y el guion al otro. Al final, aclaraciones.
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { supabase, type Media } from "../lib.ts";
-import "./doc.css";
+import "./pedido.css";
 
 type Ref = { page_name: string | null; body: string | null; format: string; media: Media[]; snapshot_url: string; hook: string | null; why_it_works: string | null; days_active: number };
 type Item = {
@@ -11,15 +14,21 @@ type Item = {
   duration: string | null; adaptations: string | null; notes: string | null; ref_beats: string | null; ref: Ref | null;
 };
 type PublicPedido = {
-  title: string; objective: string | null; notes: string | null; created_at: string; client: string | null; kind: string;
-  event_name: string | null; event_date: string | null; period: string | null; platform: string; detail_level: string;
-  deadline: string | null; intro: string | null; refs_note: string | null;
-  hooks: { hook: string; tipo?: string; por_que?: string }[]; specs: { titulo: string; items: string[] }[]; before_notes: string[];
-  items: Item[];
+  title: string; objective: string | null; notes: string | null; created_at: string; client: string | null; client_logo: string | null;
+  kind: string; event_name: string | null; event_date: string | null; period: string | null; platform: string; detail_level: string;
+  deadline: string | null; delivery_url: string | null; formats: string | null; intro: string | null; refs_note: string | null;
+  before_notes: string[] | null; items: Item[];
 };
 
-const isImage = (it: Item) => !!(it.scene || it.headline) && !it.hook;
-const fmtDate = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString("es-AR", { day: "numeric", month: "long", year: "numeric" });
+const fmtDate = (d: string) =>
+  new Date(`${d}T12:00:00`).toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" });
+
+/** Adaptaciones que siempre se piden, según la plataforma */
+export function defaultFormats(platform: string | null | undefined): string {
+  if (platform === "TikTok") return "Vertical 9:16";
+  if (platform === "Google") return "Horizontal 16:9, cuadrada 1:1 y vertical 9:16";
+  return "Vertical 9:16 (historias y reels) y feed 4:5";
+}
 
 export function RefMedia({ media }: { media: Media[] }) {
   const m = media[0];
@@ -31,9 +40,11 @@ export function RefMedia({ media }: { media: Media[] }) {
   );
 }
 
-function Lines({ text }: { text: string }) {
+function Text({ text }: { text: string }) {
   return <>{text.split(/\n+/).map((l, i) => <p key={i}>{l}</p>)}</>;
 }
+
+const isImage = (it: Item) => (!!(it.scene || it.headline) && !it.hook) || (!it.hook && it.ref != null && it.ref.format !== "video");
 
 export default function PedidoPublic() {
   const { slug } = useParams();
@@ -42,7 +53,6 @@ export default function PedidoPublic() {
   useEffect(() => {
     supabase.rpc("get_pedido", { p_slug: slug }).then(({ data }) => setP((data as PublicPedido) ?? null));
   }, [slug]);
-
   useEffect(() => {
     if (p) document.title = p.title;
   }, [p]);
@@ -50,200 +60,113 @@ export default function PedidoPublic() {
   if (p === undefined) return <p className="center muted">Cargando…</p>;
   if (p === null) return <p className="center muted">No encontramos este pedido.</p>;
 
-  const level = p.detail_level ?? "completo";
-  const videos = p.items.filter((i) => !isImage(i));
-  const images = p.items.filter((i) => isImage(i));
-  const refs = p.items.filter((i) => i.ref);
-  const groups = new Map<string, Item[]>();
-  for (const it of videos) groups.set(it.group_name ?? "", [...(groups.get(it.group_name ?? "") ?? []), it]);
-  let step = 0;
+  const formats = p.formats?.trim() || defaultFormats(p.platform);
+  const context = p.kind === "evento" ? [p.event_name ?? "Evento", p.event_date && fmtDate(p.event_date)].filter(Boolean).join(" · ") : `Always On${p.period ? ` · ${p.period}` : ""}`;
+  const notes = [p.refs_note, ...(p.before_notes ?? [])].filter((x): x is string => !!x && !!x.trim());
 
   return (
-    <div className="doc">
-      <header className="hero">
-        <div className="wrap">
-          <div className="brandline"><img src="/grownax-logo.png" alt="Grownax" /><span>Pedido de creativos</span></div>
-          <div className="kicker">
-            {p.kind === "evento" ? `${p.event_name ?? "Evento"}${p.event_date ? ` · ${fmtDate(p.event_date)}` : ""}` : `Always On${p.period ? ` · ${p.period}` : ""}`}
+    <div className="ped">
+      <div className="band" />
+      <div className="wrap">
+        <header className="cover">
+          <div className="client">
+            {p.client_logo && <img src={p.client_logo} alt={p.client ?? ""} />}
+            {p.client && <span>{p.client}</span>}
           </div>
-          <h1>{p.client ?? p.title}</h1>
-          {p.intro && <p className="intro">{p.intro}</p>}
-          <div className="counts">
-            {videos.length > 0 && <span><b>{videos.length}</b> {videos.length === 1 ? "video" : "videos"}</span>}
-            {images.length > 0 && <span><b>{images.length}</b> {images.length === 1 ? "imagen" : "imágenes"}</span>}
-            <span>{p.platform}</span>
-            {p.deadline && <span>Entrega <b>{fmtDate(p.deadline)}</b></span>}
-          </div>
-        </div>
-      </header>
+          <p className="kick">Pedido de creativos · {context}</p>
+          <h1>{p.title}</h1>
+          {p.intro && <p className="lead">{p.intro}</p>}
 
-      {refs.length > 0 && (
-        <section>
-          <div className="wrap">
-            <div className="step"><span className="n">{++step}</span><span className="lbl">Mirá las referencias</span></div>
-            <h2>Lo que vamos a tomar como referencia</h2>
-            <p className="sec-intro">Tocá play en cada una: lo que hay que replicar es la estructura, no el texto exacto.</p>
-            <div className="refs">
-              {refs.map((it) => (
-                <article className="ref" key={it.position}>
-                  <RefMedia media={it.ref!.media} />
-                  <div className="body">
-                    <div className="n">REFERENCIA {it.code ?? it.position} · {it.ref!.page_name}</div>
-                    <h3>{it.title}</h3>
-                    {it.ref_beats ? <Lines text={it.ref_beats} /> : it.ref!.why_it_works && <p>{it.ref!.why_it_works}</p>}
-                    {it.ref!.hook && <p className="muted small">Hook original: “{it.ref!.hook}”</p>}
-                  </div>
-                </article>
-              ))}
+          <div className="facts">
+            <div>
+              <b>Fecha de entrega</b>
+              <span>{p.deadline ? fmtDate(p.deadline) : "A coordinar"}</span>
             </div>
-            {p.refs_note && <div className="callout"><b>Lo que no cambia en ninguna.</b> {p.refs_note}</div>}
+            <div>
+              <b>Dónde entregar</b>
+              {p.delivery_url ? (
+                <a href={p.delivery_url} target="_blank" rel="noreferrer">Carpeta de creativos en Drive ↗</a>
+              ) : (
+                <span>Carpeta de creativos en Drive</span>
+              )}
+            </div>
+            <div>
+              <b>Adaptaciones · {p.platform}</b>
+              <span>{formats}</span>
+            </div>
+            <div>
+              <b>Creativos</b>
+              <span>{p.items.length}</span>
+            </div>
           </div>
-        </section>
-      )}
+        </header>
 
-      {videos.length > 0 && (
-        <section className="alt">
-          <div className="wrap">
-            <div className="step"><span className="n">{++step}</span><span className="lbl">Grabá</span></div>
-            <h2>{videos.length === 1 ? "El video" : `Los ${videos.length} videos`}</h2>
-            <p className="sec-intro">Tocá cualquiera para abrir el guion completo.</p>
-            {[...groups.entries()].map(([g, list]) => (
-              <div className="group" key={g || "all"}>
-                {g && <h3>{g}</h3>}
-                <div className="rows">
-                  {list.map((it, k) => (
-                    <details className="row" key={it.position} open={k === 0 && !g}>
-                      <summary>
-                        <span className="code">{it.code ?? `V${it.position}`}</span>
-                        <span className="t">{it.title}</span>
-                        {it.funnel && <span className={`tag ${it.funnel === "caliente" ? "cal" : "fria"}`}>{it.funnel === "caliente" ? "CALIENTE" : "FRÍA"}</span>}
-                        <span className="chev"><span className="more">VER GUIÓN</span><span className="less">CERRAR</span></span>
-                      </summary>
-                      <div className="rowbody">
-                        {it.ref && (
-                          <div className="inline-ref">
-                            <RefMedia media={it.ref.media} />
-                            <span className="muted small">Referencia: {it.ref.page_name}</span>
-                          </div>
-                        )}
-                        <dl className="script">
-                          {it.hook && <><dt>Hook</dt><dd><Lines text={it.hook} /></dd></>}
-                          {it.development && <><dt>Desarrollo</dt><dd><Lines text={it.development} /></dd></>}
-                          {it.closing && <><dt>Cierre</dt><dd><Lines text={it.closing} /></dd></>}
-                          {!it.hook && it.script && <><dt>Guion</dt><dd><Lines text={it.script} /></dd></>}
-                          {level !== "guion" && it.recording_tips && <><dt>Cómo grabar</dt><dd><Lines text={it.recording_tips} /></dd></>}
-                          {it.notes && <><dt>Notas</dt><dd><Lines text={it.notes} /></dd></>}
-                        </dl>
-                        <div className="foot">
-                          {it.duration && level !== "guion" && <span><b>Duración</b> {it.duration}</span>}
-                          {it.format && <span><b>Formato</b> {it.format}</span>}
-                          {level === "completo" && it.angle && <span><b>Ángulo</b> {it.angle}</span>}
-                          {level === "completo" && it.creative_type && <span><b>Tipo</b> {it.creative_type}</span>}
-                          {level === "completo" && it.adaptations && <span><b>Adaptaciones</b> {it.adaptations}</span>}
-                        </div>
-                      </div>
-                    </details>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {images.length > 0 && (
         <section>
-          <div className="wrap">
-            <div className="step"><span className="n">{++step}</span><span className="lbl">Diseñá</span></div>
-            <h2>{images.length === 1 ? "La imagen" : `Las ${images.length} imágenes`}</h2>
-            <div className="rows" style={{ marginTop: 20 }}>
-              {images.map((it) => (
-                <details className="row" key={it.position}>
-                  <summary>
-                    <span className="code">{it.code ?? `IMG${it.position}`}</span>
-                    <span className="t">{it.title}</span>
-                    {it.funnel && <span className={`tag ${it.funnel === "caliente" ? "cal" : "fria"}`}>{it.funnel === "caliente" ? "CALIENTE" : "FRÍA"}</span>}
-                    <span className="chev"><span className="more">VER</span><span className="less">CERRAR</span></span>
-                  </summary>
-                  <div className="rowbody">
-                    {it.ref && (
-                      <div className="inline-ref">
-                        <RefMedia media={it.ref.media} />
-                        <span className="muted small">Referencia: {it.ref.page_name}</span>
-                      </div>
-                    )}
+          {p.items.map((it, i) => {
+            const img = isImage(it);
+            return (
+              <article className="item" key={it.position}>
+                <div className="ref">
+                  {it.ref ? (
+                    <>
+                      <RefMedia media={it.ref.media} />
+                      <p className="cap">Referencia{it.ref.page_name ? ` · ${it.ref.page_name}` : ""}</p>
+                    </>
+                  ) : (
+                    <div className="noref">Sin referencia</div>
+                  )}
+                </div>
+                <div className="body">
+                  <p className="id">
+                    Creativo {i + 1}
+                    {it.format ? ` · ${it.format}` : ""}
+                    {it.duration ? ` · ${it.duration}` : ""}
+                  </p>
+                  {it.title && <h3>{it.title}</h3>}
+                  {it.ref_beats && <p className="beats">{it.ref_beats}</p>}
+
+                  <h4>Guion sugerido</h4>
+                  {img ? (
                     <dl className="script">
-                      {it.scene && <><dt>Escena</dt><dd><Lines text={it.scene} /></dd></>}
-                      {it.headline && <><dt>Titular</dt><dd><p>{it.headline}</p></dd></>}
-                      {it.subhead && <><dt>Bajada</dt><dd><p>{it.subhead}</p></dd></>}
-                      {level !== "guion" && it.recording_tips && <><dt>Cómo hacerla</dt><dd><Lines text={it.recording_tips} /></dd></>}
-                      {it.notes && <><dt>Notas</dt><dd><Lines text={it.notes} /></dd></>}
+                      {it.scene && (<><dt>Imagen</dt><dd><Text text={it.scene} /></dd></>)}
+                      {it.headline && (<><dt>Titular</dt><dd><Text text={it.headline} /></dd></>)}
+                      {it.subhead && (<><dt>Bajada</dt><dd><Text text={it.subhead} /></dd></>)}
                     </dl>
-                    <div className="foot">
-                      {it.format && <span><b>Formato</b> {it.format}</span>}
-                      {level === "completo" && it.angle && <span><b>Ángulo</b> {it.angle}</span>}
-                      {level === "completo" && it.adaptations && <span><b>Adaptaciones</b> {it.adaptations}</span>}
-                    </div>
-                  </div>
-                </details>
-              ))}
-            </div>
-          </div>
-        </section>
-      )}
+                  ) : (
+                    <dl className="script">
+                      {it.hook && (<><dt>Hook</dt><dd><Text text={it.hook} /></dd></>)}
+                      {it.development && (<><dt>Desarrollo</dt><dd><Text text={it.development} /></dd></>)}
+                      {it.closing && (<><dt>Cierre</dt><dd><Text text={it.closing} /></dd></>)}
+                      {it.script && !it.hook && (<><dt>Guion</dt><dd><Text text={it.script} /></dd></>)}
+                    </dl>
+                  )}
+                  {!it.hook && !it.scene && !it.headline && !it.script && <p className="muted">Guion a definir.</p>}
 
-      {p.hooks.length > 0 && (
-        <section className="alt">
-          <div className="wrap">
-            <div className="step"><span className="n">{++step}</span><span className="lbl">Hooks</span></div>
-            <h2>Hooks sugeridos para el rubro</h2>
-            <p className="sec-intro">Para abrir cualquier video o para probar variantes de las piezas de arriba.</p>
-            <ol className="hooks">
-              {p.hooks.filter((h) => h.hook).map((h, k) => (
-                <li key={k}>
-                  <p className="h">“{h.hook}”</p>
-                  <p className="muted small">{[h.tipo, h.por_que].filter(Boolean).join(" · ")}</p>
-                </li>
-              ))}
-            </ol>
-          </div>
-        </section>
-      )}
-
-      {level === "completo" && (p.specs.length > 0 || p.before_notes.length > 0) && (
-        <section>
-          <div className="wrap">
-            {p.specs.length > 0 && (
-              <>
-                <h2>Cómo se entrega</h2>
-                <div className="specs">
-                  {p.specs.map((s, k) => (
-                    <div className="spec" key={k}>
-                      <h3>{s.titulo}</h3>
-                      <ul>{s.items.map((x, i) => <li key={i}>{x}</li>)}</ul>
-                    </div>
-                  ))}
+                  {it.recording_tips && (
+                    <>
+                      <h4>Cómo grabarlo</h4>
+                      <Text text={it.recording_tips} />
+                    </>
+                  )}
+                  <p className="fmt"><b>Entregar en:</b> {formats}</p>
                 </div>
-              </>
-            )}
-            {p.before_notes.filter(Boolean).length > 0 && (
-              <>
-                <hr className="rule" />
-                <h2>Antes de grabar</h2>
-                <ol className="notes">{p.before_notes.filter(Boolean).map((n, k) => <li key={k}>{n}</li>)}</ol>
-              </>
-            )}
-          </div>
+              </article>
+            );
+          })}
         </section>
-      )}
 
-      <footer>
-        <div className="wrap">
-          <img src="/grownax-logo.png" alt="Grownax" className="foot-logo" />
-          <span>Pedido de creativos{p.client ? ` · ${p.client}` : ""}</span>
-          <span>{p.title}</span>
-        </div>
-      </footer>
+        {notes.length > 0 && (
+          <section className="notes">
+            <h2>Aclaraciones</h2>
+            <ul>{notes.map((n, i) => <li key={i}>{n}</li>)}</ul>
+          </section>
+        )}
+
+        <footer className="foot">
+          <img src="/grownax-logo.png" alt="Grownax" />
+          <span>Pedido de creativos{p.client ? ` para ${p.client}` : ""}</span>
+        </footer>
+      </div>
     </div>
   );
 }

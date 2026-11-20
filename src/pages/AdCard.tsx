@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { formatLabel, supabase, type Ad, type Media, type VideoAnalysis } from "../lib.ts";
 
-export const HOOK_SECONDS = 10;
+export const HOOK_SECONDS = 5;
 
 /**
- * Muestra el video o la imagen. Con `clip`, el video se reproduce solo los primeros 10 segundos (el hook)
+ * Muestra el video o la imagen. Con `clip`, el video se reproduce solo los primeros 5 segundos (el hook)
  * y vuelve a empezar: se corta en el navegador, el archivo original queda entero.
  */
 export function MediaView({ media, compact, clip, large }: { media: Media[]; compact?: boolean; clip?: boolean; large?: boolean }) {

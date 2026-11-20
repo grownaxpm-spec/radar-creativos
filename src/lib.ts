@@ -62,6 +62,8 @@ export type Client = {
   name: string;
   rubro: string | null;
   drive_folder_url: string | null;
+  creativos_folder_url: string | null;
+  logo_url: string | null;
   website: string | null;
   instagram: string | null;
   usp: string | null;
@@ -123,6 +125,8 @@ export type Pedido = {
   platform: string;
   detail_level: DetailLevel;
   deadline: string | null;
+  delivery_url: string | null;
+  formats: string | null;
   intro: string | null;
   refs_note: string | null;
   hooks: { hook: string; tipo?: string; por_que?: string }[];
