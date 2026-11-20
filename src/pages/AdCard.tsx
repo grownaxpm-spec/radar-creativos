@@ -46,7 +46,7 @@ export function MediaView({
           preload="metadata"
           playsInline
           muted={clip || preview}
-          autoPlay={clip && preview}
+          autoPlay={(clip && preview) || !!large}
           onTimeUpdate={(e) => {
             if (clip && e.currentTarget.currentTime >= HOOK_SECONDS) {
               e.currentTarget.currentTime = 0;
