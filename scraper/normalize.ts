@@ -158,3 +158,27 @@ export function winnerScore(
   if (aiScore != null) s = 0.75 * s + 2.5 * Math.max(1, Math.min(10, aiScore));
   return Math.round(s);
 }
+
+/**
+ * Filtro de rubro sin IA: la Biblioteca de Meta busca las palabras sueltas y trae ruido
+ * (apps, novelas, cursos). Nos quedamos con anuncios cuyo texto, título o marca contenga
+ * alguna raíz de las palabras clave del cliente, o que sean de un competidor.
+ */
+const STOP = new Set(["de", "del", "la", "el", "los", "las", "para", "con", "y", "en", "hombre", "mujer", "por", "un", "una"]);
+export function rubroRoots(terms: string[]): string[] {
+  const roots = new Set<string>();
+  for (const t of terms)
+    for (const w of t.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").split(/[^a-z0-9ñ]+/))
+      if (w.length >= 4 && !STOP.has(w)) roots.add(w.slice(0, Math.max(4, w.length - 2))); // "zapatos" → "zapat"
+  return [...roots];
+}
+export function matchesRubro(ad: Pick<NormalizedAd, "body" | "title" | "page_name" | "link_url">, roots: string[], competitors: string[] = []): boolean {
+  const hay = [ad.body, ad.title, ad.page_name, ad.link_url]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "");
+  if (competitors.some((c) => c && hay.includes(c.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "")))) return true;
+  return roots.some((r) => hay.includes(r));
+}

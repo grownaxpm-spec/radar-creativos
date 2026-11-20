@@ -86,7 +86,7 @@ async function imageBlock(url: string | null | undefined): Promise<Anthropic.Ima
     const type = res.headers.get("content-type") ?? "";
     if (!res.ok || !/^image\/(jpeg|png|webp|gif)/.test(type)) return null;
     const bytes = new Uint8Array(await res.arrayBuffer());
-    if (bytes.length > 4_500_000) return null;
+    if (bytes.length > 1_500_000) return null; // imágenes livianas: menos memoria y costo
     return {
       type: "image",
       source: { type: "base64", media_type: type.split(";")[0] as "image/jpeg", data: toBase64(bytes) },

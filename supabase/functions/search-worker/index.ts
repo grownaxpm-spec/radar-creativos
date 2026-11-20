@@ -9,7 +9,7 @@
 // Secretos que usa (Supabase → Edge Functions → Secrets): APIFY_TOKEN, ANTHROPIC_API_KEY (opcional),
 // APIFY_ACTOR y CLAUDE_MODEL (opcionales). SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY los pone Supabase solo.
 import { createClient } from "@supabase/supabase-js";
-import { daysActive, libraryUrl, normalizeAd, winnerScore, type MediaItem, type NormalizedAd } from "./normalize.ts";
+import { daysActive, libraryUrl, matchesRubro, normalizeAd, rubroRoots, winnerScore, type MediaItem, type NormalizedAd } from "./normalize.ts";
 import { getItems, getRun, sourceUrlOf, startRun } from "./apify.ts";
 import { classifyAds, type ClientProfile } from "./classify.ts";
 
@@ -20,8 +20,8 @@ const ACTOR = Deno.env.get("APIFY_ACTOR") || "apify/facebook-ads-scraper";
 const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY");
 const CLAUDE_MODEL = Deno.env.get("CLAUDE_MODEL") || undefined;
 const SELF_URL = `${SUPABASE_URL}/functions/v1/search-worker`;
-const CHUNK = 24; // anuncios por tanda
-const BUDGET_MS = 110_000; // dejamos margen al límite de la función
+const CHUNK = 8; // anuncios por tanda (chico: el servidor de Supabase tiene poca memoria)
+const BUDGET_MS = 60_000; // una tanda por invocación y seguimos en otra
 
 const db = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
@@ -141,11 +141,15 @@ async function tick(id: string, t0: number): Promise<"done" | "more" | "waiting"
     const byUrl = new Map((s.queries ?? []).map((x) => [x.url, x]));
     const startUrls = (s.queries ?? []).map((x) => x.url);
 
-    while (processed < total && Date.now() - t0 < BUDGET_MS) {
+    if (processed === 0) await setSearch(s.id, { progress: `Procesando ${total} anuncios…`, progress_pct: 50, total_items: total });
+    // Una tanda por invocación: si queda más, sigue en otra (cada una tiene su propio límite de memoria y tiempo)
+    if (processed < total) {
       const items = await getItems(s.apify_dataset_id, APIFY_TOKEN, processed, CHUNK);
-      if (items.length === 0) break;
-      found += await processChunk(s, items, { client, byUrl, startUrls });
-      processed += items.length;
+      if (items.length === 0) processed = total;
+      else {
+        found += await processChunk(s, items, { client, byUrl, startUrls });
+        processed += items.length;
+      }
       await setSearch(s.id, {
         processed,
         total_items: total,
@@ -216,11 +220,19 @@ async function processChunk(
     { apiKey: ANTHROPIC_KEY, model: CLAUDE_MODEL },
   );
 
-  const keep = ads.filter(({ ad }) => tags.get(ad.ad_archive_id)?.relevant !== false);
+  // Se queda si la IA dice que es del rubro; si la IA no lo analizó, tiene que mencionar el rubro o un competidor
+  const roots = rubroRoots([s.rubro, ...s.keywords]);
+  const isRelevant = (ad: NormalizedAd) => {
+    const r = tags.get(ad.ad_archive_id)?.relevant;
+    return r === true || (r === undefined && matchesRubro(ad, roots, s.keywords));
+  };
+  const keep = ads.filter(({ ad }) => isRelevant(ad));
+  const drop = ads.filter(({ ad }) => !isRelevant(ad)).map(({ ad }) => ad.ad_archive_id);
+  if (drop.length) await db.from("ads").update({ relevant: false }).eq("platform", "meta").in("ad_archive_id", drop);
   let saved = 0;
   const queue = [...keep];
   await Promise.all(
-    Array.from({ length: 6 }, async () => {
+    Array.from({ length: 2 }, async () => {
       for (let x = queue.shift(); x; x = queue.shift()) if (await saveAd(s.id, x.ad, x.query, tags.get(x.ad.ad_archive_id))) saved++;
     }),
   );
@@ -266,7 +278,7 @@ async function saveAd(searchId: string, ad: NormalizedAd, query: string, t: any)
 }
 
 // Copia videos e imágenes a Supabase Storage (los links de Meta vencen en pocos días)
-const MAX_BYTES = 45 * 1024 * 1024;
+const MAX_BYTES = 20 * 1024 * 1024; // videos más pesados quedan con el link de Meta
 async function copy(url: string, key: string): Promise<string | null> {
   try {
     const res = await fetch(url);

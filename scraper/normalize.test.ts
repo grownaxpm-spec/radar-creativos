@@ -67,3 +67,13 @@ test("variaciones desde collationCount", () => {
   const ad = normalizeAd({ adArchiveID: "5", collationCount: 4, snapshot: { images: [{ originalImageUrl: "https://i/x.jpg" }] } })!;
   assert.equal(ad.variations, 4);
 });
+
+import { rubroRoots, matchesRubro } from "./normalize.ts";
+test("filtro de rubro descarta apps de idiomas y deja calzado", () => {
+  const roots = rubroRoots(["zapatos de cuero hombre", "botas de cuero hombre", "Calzado y marroquinería de cuero para hombre"]);
+  const base = { title: null, link_url: null };
+  assert.ok(matchesRubro({ ...base, body: "Zapatillas urbanas 100% cuero vacuno", page_name: "X" }, roots));
+  assert.ok(matchesRubro({ ...base, body: "Nuevos mocasines", page_name: "Giorgio Beneti" }, roots, ["Giorgio Beneti"]));
+  assert.ok(!matchesRubro({ ...base, body: "Aprendé inglés leyendo 10 minutos por día", page_name: "EWA: Learn Languages" }, roots));
+  assert.ok(!matchesRubro({ ...base, body: "Nunca había estado tan cerca de ella", page_name: "Caliente-Romance" }, roots));
+});
