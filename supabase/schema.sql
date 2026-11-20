@@ -224,3 +224,13 @@ alter default privileges in schema public grant select, insert, update, delete o
 alter default privileges in schema public grant usage, select on sequences to authenticated;
 alter table searches add column if not exists progress text;
 alter table searches add column if not exists progress_pct int;
+
+-- ---------- Permisos para el robot (Edge Function con service_role) ----------
+grant usage on schema public to service_role;
+grant all on all tables in schema public to service_role;
+grant all on all sequences in schema public to service_role;
+grant execute on all functions in schema public to service_role;
+alter default privileges in schema public grant all on tables to service_role;
+alter default privileges in schema public grant all on sequences to service_role;
+-- Reloj: avanzar búsquedas cada minuto (requiere pg_cron y pg_net)
+-- select cron.schedule('radar-tick', '* * * * *', $$ select net.http_post(url := '<SUPABASE_URL>/functions/v1/search-worker', body := '{"action":"tick"}'::jsonb, headers := '{"content-type":"application/json"}'::jsonb, timeout_milliseconds := 5000) $$);
