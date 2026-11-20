@@ -53,11 +53,11 @@
 .doc summary{list-style:none;cursor:pointer;display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:14px 17px}
 .doc summary::-webkit-details-marker{display:none}
 .doc .code{font-family:var(--f-mono);font-weight:700;color:var(--blue);font-size:.8rem;flex:none}
-.doc summary .t{flex:1 1 180px;min-width:0;font-family:var(--f-display);font-weight:600;color:var(--ink);font-size:1rem}
+.doc summary .t{flex:1 1 140px;min-width:0;font-family:var(--f-display);font-weight:600;color:var(--ink);font-size:1rem}
 .doc .tag{font-family:var(--f-mono);font-size:.61rem;letter-spacing:.08em;padding:3px 8px;border-radius:5px;font-weight:700;flex:none}
 .doc .tag.fria{background:var(--blue-soft);color:var(--blue)}
 .doc .tag.cal{background:var(--red-soft);color:var(--red)}
-.doc .chev{flex:none;font-family:var(--f-mono);font-size:.63rem;color:var(--muted);letter-spacing:.06em}
+.doc .chev{flex:none;margin-left:auto;font-family:var(--f-mono);font-size:.63rem;color:var(--muted);letter-spacing:.06em}
 .doc details[open] .chev .more,.doc details:not([open]) .chev .less{display:none}
 .doc .rowbody{padding:2px 17px 19px;border-top:1px solid var(--border);margin-top:-1px}
 .doc .inline-ref{display:flex;align-items:flex-end;gap:12px;margin-top:16px}
