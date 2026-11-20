@@ -29,7 +29,7 @@ export default function RefsPublic() {
     <div className="doc">
       <header className="hero">
         <div className="wrap">
-          <div className="brandline"><span className="tri" /> Grownax · Referencias</div>
+          <div className="brandline"><img src="/grownax-logo.png" alt="Grownax" /><span>Referencias</span></div>
           <h1>{r.client ?? r.title}</h1>
           {r.note && <p className="intro">{r.note}</p>}
           <div className="counts">
@@ -64,7 +64,8 @@ export default function RefsPublic() {
       </section>
       <footer>
         <div className="wrap">
-          <span><b>Grownax</b> · Referencias{r.client ? ` · ${r.client}` : ""}</span>
+          <img src="/grownax-logo.png" alt="Grownax" className="foot-logo" />
+          <span>Referencias{r.client ? ` · ${r.client}` : ""}</span>
         </div>
       </footer>
     </div>

@@ -62,15 +62,15 @@ export default function PedidoPublic() {
     <div className="doc">
       <header className="hero">
         <div className="wrap">
-          <div className="brandline"><span className="tri" /> Grownax · Pedido de creativos</div>
+          <div className="brandline"><img src="/grownax-logo.png" alt="Grownax" /><span>Pedido de creativos</span></div>
           <div className="kicker">
             {p.kind === "evento" ? `${p.event_name ?? "Evento"}${p.event_date ? ` · ${fmtDate(p.event_date)}` : ""}` : `Always On${p.period ? ` · ${p.period}` : ""}`}
           </div>
           <h1>{p.client ?? p.title}</h1>
           {p.intro && <p className="intro">{p.intro}</p>}
           <div className="counts">
-            {videos.length > 0 && <span><b>{videos.length}</b> videos</span>}
-            {images.length > 0 && <span><b>{images.length}</b> imágenes</span>}
+            {videos.length > 0 && <span><b>{videos.length}</b> {videos.length === 1 ? "video" : "videos"}</span>}
+            {images.length > 0 && <span><b>{images.length}</b> {images.length === 1 ? "imagen" : "imágenes"}</span>}
             <span>{p.platform}</span>
             {p.deadline && <span>Entrega <b>{fmtDate(p.deadline)}</b></span>}
           </div>
@@ -105,7 +105,7 @@ export default function PedidoPublic() {
         <section className="alt">
           <div className="wrap">
             <div className="step"><span className="n">{++step}</span><span className="lbl">Grabá</span></div>
-            <h2>Los {videos.length} videos</h2>
+            <h2>{videos.length === 1 ? "El video" : `Los ${videos.length} videos`}</h2>
             <p className="sec-intro">Tocá cualquiera para abrir el guion completo.</p>
             {[...groups.entries()].map(([g, list]) => (
               <div className="group" key={g || "all"}>
@@ -155,7 +155,7 @@ export default function PedidoPublic() {
         <section>
           <div className="wrap">
             <div className="step"><span className="n">{++step}</span><span className="lbl">Diseñá</span></div>
-            <h2>Las {images.length} imágenes</h2>
+            <h2>{images.length === 1 ? "La imagen" : `Las ${images.length} imágenes`}</h2>
             <div className="rows" style={{ marginTop: 20 }}>
               {images.map((it) => (
                 <details className="row" key={it.position}>
@@ -239,7 +239,8 @@ export default function PedidoPublic() {
 
       <footer>
         <div className="wrap">
-          <span><b>Grownax</b> · Pedido de creativos{p.client ? ` · ${p.client}` : ""}</span>
+          <img src="/grownax-logo.png" alt="Grownax" className="foot-logo" />
+          <span>Pedido de creativos{p.client ? ` · ${p.client}` : ""}</span>
           <span>{p.title}</span>
         </div>
       </footer>

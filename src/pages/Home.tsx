@@ -19,7 +19,8 @@ export default function Home() {
     <div>
       <section className="hero-panel">
         <div>
-          <h1>Referencias de la competencia, listas para pedir piezas.</h1>
+          <p className="kicker">Grownax · Pedido de creativos</p>
+          <h1>Referencias de la competencia, <span className="gx-em">listas para pedir piezas.</span></h1>
           <p className="muted">
             Buscá anuncios del rubro de tu cliente, quedate con los mejores hooks y armá el pedido de creativos con los videos adentro.
           </p>

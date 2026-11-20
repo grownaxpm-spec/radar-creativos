@@ -69,7 +69,8 @@ export default function App() {
     <SelectionCtx.Provider value={sel}>
       <header className="topbar">
         <NavLink to="/" className="brand">
-          <span className="dot" /> {APP_NAME}
+          <img src="/grownax-logo.png" alt="Grownax" />
+          <span className="app-name">{APP_NAME}</span>
         </NavLink>
         <nav>
           <NavLink to="/" end>Inicio</NavLink>
