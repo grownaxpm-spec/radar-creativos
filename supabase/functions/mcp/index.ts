@@ -88,7 +88,7 @@ const clientFields = (a: any) =>
 const kick = () => fetch(WORKER_URL, { method: "POST", headers: { "content-type": "application/json" }, body: '{"action":"tick"}' }).catch(() => {});
 const EVENTS = ["Black Friday", "Cyber Monday", "Hot Sale", "Navidad", "Día del Padre", "Día de la Madre", "Día del Niño", "San Valentín", "Rebajas / liquidación"];
 
-// Saca el mp4 (y una portada) de la vista previa de Meta (preview_iframe.php). Desde este servidor se puede abrir.
+// Saca el mp4 (y una portada) de la vista previa de Meta (preview_iframe.php).
 // La de "Feed de Facebook" (MOBILE_FEED_STANDARD) trae el video incrustado; la de Reels a veces no.
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36";
 const unesc = (x: string) => x.replace(/\\\//g, "/").replace(/\\u0025/g, "%").replace(/\\u0026/g, "&").replace(/&amp;/g, "&").replace(/\\/g, "");
