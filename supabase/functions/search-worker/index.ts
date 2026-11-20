@@ -218,6 +218,27 @@ async function processChunk(
     ads.push({ ad, query: src ? `${src.q} (${src.country})` : "búsqueda" });
   }
 
+  // Nunca repetir: afuera lo que ya trajo cualquier búsqueda anterior (mismo anuncio, o la misma pieza
+  // de la misma marca con otro número de Meta) y las copias dentro de esta misma tanda
+  const sameKey = (page: string | null, body: string | null) =>
+    body ? `${(page ?? "").toLowerCase()}|${body.toLowerCase().replace(/\s+/g, " ").trim().slice(0, 200)}` : null;
+  const pages = [...new Set(ads.map(({ ad }) => ad.page_name).filter((x): x is string => !!x))];
+  const [{ data: byId }, { data: byPage }] = await Promise.all([
+    db.from("ads").select("ad_archive_id").in("ad_archive_id", ads.map(({ ad }) => ad.ad_archive_id)),
+    pages.length ? db.from("ads").select("page_name, body").in("page_name", pages) : Promise.resolve({ data: [] as { page_name: string; body: string | null }[] }),
+  ]);
+  const seenIds = new Set((byId ?? []).map((r) => r.ad_archive_id));
+  const seenKeys = new Set((byPage ?? []).map((r) => sameKey(r.page_name, r.body)).filter(Boolean));
+  const fresh = ads.filter(({ ad }) => {
+    const k = sameKey(ad.page_name, ad.body);
+    if (seenIds.has(ad.ad_archive_id) || (k && seenKeys.has(k))) return false;
+    if (k) seenKeys.add(k);
+    return true;
+  });
+  ads.length = 0;
+  ads.push(...fresh);
+  if (ads.length === 0) return 0;
+
   const tags = await classifyAds(
     s.rubro,
     ctx.client,
