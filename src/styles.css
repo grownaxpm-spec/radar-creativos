@@ -250,9 +250,9 @@ ol.scenes .t { font-family: var(--gx-font-mono); color: var(--gx-blue); font-siz
 .home-clients .kicker { justify-content: center; }
 .home-clients h1 { margin: 0 0 24px; font-size: clamp(1.5rem, 4vw, 2.2rem); }
 .client-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 240px)); justify-content: center; gap: 16px; }
-.client-tile { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 22px 16px; display: flex; flex-direction: column; align-items: center; gap: 8px; color: var(--gx-ink); box-shadow: var(--gx-shadow-sm); transition: box-shadow .15s, transform .15s, border-color .15s; text-align: center; }
+.client-tile { min-height: 110px; justify-content: center; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 22px 16px; display: flex; flex-direction: column; align-items: center; gap: 8px; color: var(--gx-ink); box-shadow: var(--gx-shadow-sm); transition: box-shadow .15s, transform .15s, border-color .15s; text-align: center; }
 .client-tile:hover { text-decoration: none; border-color: var(--gx-blue-2); box-shadow: var(--gx-shadow); transform: translateY(-2px); }
-.client-tile b { font-family: var(--gx-font-display); font-size: 1.05rem; }
+.client-tile b { font-family: var(--gx-font-display); font-size: 1.25rem; }
 .client-tile.add { border-style: dashed; color: var(--muted); }
 .client-logo { display: block; max-width: 160px; object-fit: contain; }
 .client-initial { border-radius: 12px; background: var(--gx-blue-soft); color: var(--gx-blue); display: inline-flex; align-items: center; justify-content: center; font-family: var(--gx-font-display); font-weight: 700; }
