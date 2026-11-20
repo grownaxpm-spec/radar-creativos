@@ -69,6 +69,25 @@ async function findGroup(name: string, clientId?: string) {
   return data as { id: string; name: string; client_id: string | null; ad_ids: string[]; hook_ids: string[] };
 }
 
+async function findPedido(idOrSlug: string) {
+  const isId = /^[0-9a-f-]{36}$/i.test(idOrSlug);
+  const slug = idOrSlug.split("/p/").pop()!.trim();
+  const { data } = await (isId ? db.from("pedidos").select("*").eq("id", idOrSlug) : db.from("pedidos").select("*").eq("slug", slug)).maybeSingle();
+  if (!data) throw new Error("No encontré el pedido. Usá listar_pedidos para ver los ids.");
+  return data;
+}
+
+const now = () => new Date().toISOString();
+const clean = (o: Record<string, unknown>) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined));
+const clientFields = (a: any) =>
+  clean({
+    name: a.nombre, rubro: a.rubro, usp: a.usp, target: a.publico, messages: a.mensajes, tone: a.tono, avoid: a.no_comunicar,
+    competitors: a.competidores, keywords: a.palabras_clave, website: a.web, instagram: a.instagram, logo_url: a.logo_url,
+    drive_folder_url: a.drive, creativos_folder_url: a.carpeta_creativos, notes: a.notas,
+  });
+const kick = () => fetch(WORKER_URL, { method: "POST", headers: { "content-type": "application/json" }, body: '{"action":"tick"}' }).catch(() => {});
+const EVENTS = ["Black Friday", "Cyber Monday", "Hot Sale", "Navidad", "Día del Padre", "Día de la Madre", "Día del Niño", "San Valentín", "Rebajas / liquidación"];
+
 async function copyMedia(url: string, key: string): Promise<string> {
   try {
     const res = await fetch(url);
@@ -155,7 +174,10 @@ const TOOLS: Tool[] = [
         solo_del_cliente: bool("Solo los anuncios que trajeron las búsquedas de ese cliente"),
         ocultar_usados: bool("Esconder los anuncios que ya se usaron en pedidos de ese cliente"),
         fuente: { type: "string", enum: ["competencia", "propio"], description: "Solo competencia o solo anuncios propios del cliente" },
-        limite: num("Cantidad máxima (por defecto 20)"),
+        busqueda_id: str("Solo los anuncios que trajo una búsqueda puntual"),
+        solo_favoritos: bool("Solo los marcados como favoritos para ese cliente"),
+        orden: { type: "string", enum: ["puntaje", "dias", "recientes"], description: "Orden (por defecto, mejor puntaje primero)" },
+        limite: num("Cantidad máxima (por defecto 20, hasta 100)"),
       },
     },
     run: async (a) => {
@@ -171,7 +193,23 @@ const TOOLS: Tool[] = [
       if (a.fuente) q = q.eq("source", a.fuente);
       if (a.fuente === "propio" && client) q = q.eq("owner_client_id", client.id);
       if (a.texto) q = q.or(`body.ilike.%${a.texto}%,page_name.ilike.%${a.texto}%,hook.ilike.%${a.texto}%`);
-      const { data } = await q.order("score", { ascending: false, nullsFirst: false }).limit(Math.min(Number(a.limite) || 20, 60));
+      if (a.busqueda_id) {
+        const { data: sr } = await db.from("search_results").select("ad_id").eq("search_id", a.busqueda_id);
+        q = q.in("id", (sr ?? []).map((r) => r.ad_id));
+      }
+      if (a.solo_favoritos) {
+        let sq = db.from("saves").select("ad_id");
+        sq = client ? sq.eq("client_id", client.id) : sq.is("client_id", null);
+        const { data: sv } = await sq;
+        q = q.in("id", (sv ?? []).map((r) => r.ad_id));
+      }
+      q =
+        a.orden === "dias"
+          ? q.order("days_active", { ascending: false, nullsFirst: false })
+          : a.orden === "recientes"
+            ? q.order("first_seen", { ascending: false })
+            : q.order("score", { ascending: false, nullsFirst: false });
+      const { data } = await q.limit(Math.min(Number(a.limite) || 20, 100));
       let rows = data ?? [];
       if (client) {
         const { data: d } = await db.from("discards").select("ad_id").or(`client_id.is.null,client_id.eq.${client.id}`);
@@ -218,7 +256,7 @@ const TOOLS: Tool[] = [
   {
     name: "empezar_busqueda",
     description:
-      "Empieza una búsqueda nueva de anuncios de la competencia en la Biblioteca de Meta para un cliente. Usa sus palabras clave y competidores si no se pasan otras. No fuerza un número por país: trae un total repartido libremente. Si es para un evento (Black Friday, Cyber Monday, Hot Sale…) solo guarda anuncios de venta directa. Descarta marketplaces, anuncios de catálogo y anuncios que ya trajo otra búsqueda. Tarda unos minutos; consultá el avance con estado_busquedas.",
+      "Paso 2: lanza una búsqueda nueva de anuncios de la competencia en la Biblioteca de Meta para un cliente. Antes usar preparar_busqueda y preguntarle al usuario todo junto. No fuerza un número por país: trae un total repartido libremente. Si es para un evento (Black Friday, Cyber Monday, Hot Sale…) solo guarda anuncios de venta directa. Descarta marketplaces, anuncios de catálogo y anuncios que ya trajo otra búsqueda. Tarda unos minutos; consultá el avance con estado_busquedas.",
     inputSchema: {
       type: "object",
       properties: {
@@ -227,11 +265,15 @@ const TOOLS: Tool[] = [
         paises: arr("Códigos de país, ej. AR, UY, CL, MX, ES (por defecto AR, ES, MX, US, CO y CL)"),
         total: num("Cantidad total de anuncios aproximada, entre todos los países (por defecto 150)"),
         evento: str("Evento para el que se busca (Black Friday, Cyber Monday, Hot Sale, Navidad…). Vacío = Always On"),
+        tipo_medio: { type: "string", enum: ["all", "video", "image"], description: "Video e imagen (all), solo video o solo imagen" },
         semanal: bool("Repetir cada semana"),
+        confirmado: bool("true solo después de haberle preguntado al usuario todo junto (con preparar_busqueda) y que haya respondido"),
       },
-      required: ["cliente"],
+      required: ["cliente", "confirmado"],
     },
     run: async (a) => {
+      if (a.confirmado !== true)
+        throw new Error("Antes de lanzar la búsqueda llamá a preparar_busqueda y preguntale al usuario todo junto, en un solo mensaje. Después llamá de nuevo con confirmado=true.");
       const client = await findClient(a.cliente);
       const keywords = a.palabras_clave?.length ? a.palabras_clave : [...(client.keywords ?? []), ...(client.competitors ?? [])];
       const countries = a.paises?.length ? a.paises.map((x: string) => x.toUpperCase()) : ["AR", "ES", "MX", "US", "CO", "CL"];
@@ -247,6 +289,7 @@ const TOOLS: Tool[] = [
           max_total: total,
           max_per_query: Math.max(10, Math.min(100, Math.ceil((total * 1.5) / nq))),
           event: a.evento?.trim() || null,
+          media_type: a.tipo_medio ?? "all",
           recurring: !!a.semanal,
           created_by: "claude (conector)",
         })
@@ -254,7 +297,7 @@ const TOOLS: Tool[] = [
         .single();
       if (error) throw error;
       // El robot toma las pendientes; lo empujamos para que arranque ya
-      fetch(WORKER_URL, { method: "POST", headers: { "content-type": "application/json" }, body: '{"action":"tick"}' }).catch(() => {});
+      kick();
       return { busqueda_id: s.id, estado: "en marcha", evento: s.event, total: s.max_total, palabras_clave: s.keywords, paises: s.countries, ver_avance: `${APP_URL}/clientes/${client.id}?tab=busquedas` };
     },
   },
@@ -438,11 +481,12 @@ const TOOLS: Tool[] = [
     description: "Arma un link para compartir solo referencias (sin pedido), con los videos reproducibles y el análisis de cada una.",
     inputSchema: {
       type: "object",
-      properties: { cliente: str("Cliente"), anuncio_ids: arr("IDs de los anuncios"), titulo: str("Título"), nota: str("Nota para el cliente") },
-      required: ["anuncio_ids"],
+      properties: { cliente: str("Cliente"), grupo: str("O el nombre de un grupo"), anuncio_ids: arr("IDs de los anuncios"), titulo: str("Título"), nota: str("Nota para el cliente") },
     },
     run: async (a) => {
       const client = await findClient(a.cliente);
+      if (a.grupo) a.anuncio_ids = [...new Set([...(await findGroup(a.grupo, client?.id)).ad_ids, ...(a.anuncio_ids ?? [])])];
+      if (!a.anuncio_ids?.length) throw new Error("Pasá anuncio_ids o un grupo.");
       const { data, error } = await db
         .from("reference_sets")
         .insert({ title: a.titulo ?? `Referencias${client ? ` para ${client.name}` : ""}`, note: a.nota ?? null, client_id: client?.id ?? null, ad_ids: a.anuncio_ids, created_by: "claude (conector)" })
@@ -462,12 +506,334 @@ const TOOLS: Tool[] = [
       return { descartado: true };
     },
   },
+  // ---------- Búsquedas ----------
+  {
+    name: "preparar_busqueda",
+    description:
+      "Paso 1 para lanzar una búsqueda: devuelve las opciones y los valores por defecto del cliente (palabras clave, competidores, países, total). " +
+      "Con eso preguntale al usuario TODO JUNTO en un solo mensaje (para qué es: Always On o qué evento; países; cantidad total; video, imagen o ambos; palabras clave a sumar o sacar; si se repite cada semana). " +
+      "Cuando responda, llamá a empezar_busqueda con confirmado=true.",
+    inputSchema: { type: "object", properties: { cliente: str("Nombre del cliente") }, required: ["cliente"] },
+    run: async (a) => {
+      const client = await findClient(a.cliente);
+      return {
+        cliente: client.name,
+        rubro: client.rubro,
+        preguntas: [
+          { campo: "evento", pregunta: "¿Para qué es? Always On o un evento", opciones: ["Always On", ...EVENTS, "Otro (decime cuál)"], nota: "En eventos solo entran anuncios de venta directa" },
+          { campo: "paises", pregunta: "¿De qué países traemos contenido?", por_defecto: ["AR", "ES", "MX", "US", "CO", "CL"], otros: ["UY", "PY", "BO", "PE", "EC", "BR"] },
+          { campo: "total", pregunta: "¿Cuántos anuncios en total (aprox.)?", por_defecto: 150 },
+          { campo: "tipo_medio", pregunta: "¿Video, imagen o ambos?", por_defecto: "ambos" },
+          { campo: "palabras_clave", pregunta: "¿Sumamos o sacamos palabras clave?", por_defecto: [...(client.keywords ?? []), ...(client.competitors ?? [])] },
+          { campo: "semanal", pregunta: "¿La repetimos cada semana?", por_defecto: false },
+        ],
+      };
+    },
+  },
+  {
+    name: "actualizar_busqueda",
+    description: "Vuelve a correr una búsqueda existente (solo suma anuncios nuevos, nunca repetidos).",
+    inputSchema: { type: "object", properties: { busqueda_id: str("ID de la búsqueda (estado_busquedas)") }, required: ["busqueda_id"] },
+    run: async (a) => {
+      const { error } = await db.from("searches").update({ status: "pending", error: null, apify_run_id: null, apify_dataset_id: null, progress: null }).eq("id", a.busqueda_id);
+      if (error) throw error;
+      kick();
+      return { ok: true, estado: "en cola, arranca en menos de un minuto" };
+    },
+  },
+  {
+    name: "borrar_busqueda",
+    description: "Borra una búsqueda del historial. Los anuncios que trajo quedan en la biblioteca.",
+    inputSchema: { type: "object", properties: { busqueda_id: str("ID de la búsqueda") }, required: ["busqueda_id"] },
+    run: async (a) => {
+      await db.from("searches").delete().eq("id", a.busqueda_id);
+      return { borrada: true };
+    },
+  },
+
+  // ---------- Anuncios ----------
+  {
+    name: "ver_anuncio",
+    description: "Detalle completo de un anuncio: análisis de la IA, texto, link al video o imagen y, si existe, el análisis del video completo (transcripción y escenas).",
+    inputSchema: { type: "object", properties: { anuncio_id: str("ID del anuncio") }, required: ["anuncio_id"] },
+    run: async (a) => {
+      const { data } = await db.from("ads_view").select("*").eq("id", a.anuncio_id).maybeSingle();
+      if (!data) throw new Error("No encontré el anuncio");
+      return {
+        ...adSummary(data),
+        texto: data.body,
+        resumen: data.ai_summary,
+        paises: data.countries,
+        desde: data.start_date,
+        hasta: data.end_date,
+        video_completo: data.video_analysis ?? undefined,
+        estado_video: data.video_status,
+      };
+    },
+  },
+  {
+    name: "analizar_video",
+    description: "Pone un video en la cola para que la IA lo mire completo (imagen y audio): transcripción, textos en pantalla, hook y escenas. Tarda 1 o 2 minutos; después consultá ver_anuncio.",
+    inputSchema: { type: "object", properties: { anuncio_id: str("ID del anuncio de video") }, required: ["anuncio_id"] },
+    run: async (a) => {
+      // Queda primero en la cola (la cola toma los de video_at más viejo dentro de los sin analizar, por puntaje)
+      const { error } = await db.from("ads").update({ video_status: null, video_error: null, video_analysis: null }).eq("id", a.anuncio_id).eq("format", "video");
+      if (error) throw error;
+      kick();
+      return { ok: true, estado: "en cola: se analiza en los próximos minutos" };
+    },
+  },
+  {
+    name: "favorito",
+    description: "Marca o desmarca un anuncio como favorito para un cliente.",
+    inputSchema: { type: "object", properties: { anuncio_id: str("ID del anuncio"), cliente: str("Cliente"), quitar: bool("true para sacarlo de favoritos") }, required: ["anuncio_id"] },
+    run: async (a) => {
+      const client = await findClient(a.cliente);
+      let del = db.from("saves").delete().eq("ad_id", a.anuncio_id);
+      del = client ? del.eq("client_id", client.id) : del.is("client_id", null);
+      await del;
+      if (!a.quitar) await db.from("saves").insert({ ad_id: a.anuncio_id, client_id: client?.id ?? null });
+      return { favorito: !a.quitar };
+    },
+  },
+  {
+    name: "restaurar_anuncio",
+    description: "Vuelve a mostrar un anuncio descartado (para un cliente o para todos).",
+    inputSchema: { type: "object", properties: { anuncio_id: str("ID del anuncio"), cliente: str("Cliente") }, required: ["anuncio_id"] },
+    run: async (a) => {
+      const client = await findClient(a.cliente);
+      let del = db.from("discards").delete().eq("ad_id", a.anuncio_id);
+      del = client ? del.eq("client_id", client.id) : del.is("client_id", null);
+      await del;
+      return { restaurado: true };
+    },
+  },
+
+  // ---------- Grupos ----------
+  {
+    name: "crear_grupo",
+    description: "Crea un grupo de anuncios con nombre (referencias y hooks) para un cliente.",
+    inputSchema: {
+      type: "object",
+      properties: { cliente: str("Cliente"), nombre: str("Nombre del grupo"), anuncio_ids: arr("Referencias"), hook_ids: arr("Hooks (videos)") },
+      required: ["cliente", "nombre"],
+    },
+    run: async (a) => {
+      const client = await findClient(a.cliente);
+      const { data, error } = await db
+        .from("ad_groups")
+        .insert({ client_id: client.id, name: a.nombre, ad_ids: a.anuncio_ids ?? [], hook_ids: a.hook_ids ?? [], created_by: "claude (conector)" })
+        .select("id")
+        .single();
+      if (error) throw error;
+      return { grupo_id: data.id, nombre: a.nombre, ver: `${APP_URL}/clientes/${client.id}?tab=grupos` };
+    },
+  },
+  {
+    name: "editar_grupo",
+    description: "Suma o saca anuncios de un grupo, o lo renombra.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        grupo: str("Nombre del grupo"),
+        cliente: str("Cliente"),
+        sumar_anuncio_ids: arr("Referencias a sumar"),
+        sumar_hook_ids: arr("Hooks a sumar"),
+        quitar_ids: arr("Anuncios a sacar (de referencias y de hooks)"),
+        nuevo_nombre: str("Nuevo nombre"),
+      },
+      required: ["grupo"],
+    },
+    run: async (a) => {
+      const client = await findClient(a.cliente);
+      const g = await findGroup(a.grupo, client?.id);
+      const out = new Set<string>(a.quitar_ids ?? []);
+      const ad_ids = [...new Set([...g.ad_ids, ...(a.sumar_anuncio_ids ?? [])])].filter((x) => !out.has(x));
+      const hook_ids = [...new Set([...g.hook_ids, ...(a.sumar_hook_ids ?? [])])].filter((x) => !out.has(x));
+      await db.from("ad_groups").update(clean({ ad_ids, hook_ids, name: a.nuevo_nombre || undefined, updated_at: now() })).eq("id", g.id);
+      return { grupo: a.nuevo_nombre || g.name, referencias: ad_ids.length, hooks: hook_ids.length };
+    },
+  },
+  {
+    name: "borrar_grupo",
+    description: "Borra un grupo (los anuncios quedan en la biblioteca).",
+    inputSchema: { type: "object", properties: { grupo: str("Nombre del grupo"), cliente: str("Cliente") }, required: ["grupo"] },
+    run: async (a) => {
+      const client = await findClient(a.cliente);
+      const g = await findGroup(a.grupo, client?.id);
+      await db.from("ad_groups").delete().eq("id", g.id);
+      return { borrado: g.name };
+    },
+  },
+
+  // ---------- Clientes ----------
+  {
+    name: "crear_cliente",
+    description:
+      "Crea un cliente nuevo con su perfil (rubro, propuesta de valor, público, mensajes, tono, qué no comunicar, competidores, palabras clave, web, Instagram, logo y carpetas de Drive).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        nombre: str("Nombre"), rubro: str("Rubro"), usp: str("Propuesta de valor"), publico: str("Público"), mensajes: arr("Mensajes guía"),
+        tono: str("Tono"), no_comunicar: str("Qué NO comunicar"), competidores: arr("Marcas competidoras"), palabras_clave: arr("Palabras clave para buscar"),
+        web: str("Web"), instagram: str("Instagram"), logo_url: str("Link a la imagen del logo"), drive: str("Carpeta del cliente en Drive"),
+        carpeta_creativos: str("Carpeta donde se entregan los creativos"), notas: str("Notas"),
+      },
+      required: ["nombre"],
+    },
+    run: async (a) => {
+      const { data, error } = await db.from("clients").insert(clientFields(a)).select("id, name").single();
+      if (error) throw error;
+      return { cliente_id: data.id, nombre: data.name, ver: `${APP_URL}/clientes/${data.id}` };
+    },
+  },
+  {
+    name: "editar_cliente",
+    description: "Edita el perfil de un cliente (solo los campos que pases).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        cliente: str("Cliente a editar"), nombre: str("Nuevo nombre"), rubro: str("Rubro"), usp: str("Propuesta de valor"), publico: str("Público"),
+        mensajes: arr("Mensajes guía (reemplaza)"), tono: str("Tono"), no_comunicar: str("Qué NO comunicar"), competidores: arr("Competidores (reemplaza)"),
+        palabras_clave: arr("Palabras clave (reemplaza)"), web: str("Web"), instagram: str("Instagram"), logo_url: str("Logo"), drive: str("Carpeta en Drive"),
+        carpeta_creativos: str("Carpeta de entrega de creativos"), notas: str("Notas"),
+      },
+      required: ["cliente"],
+    },
+    run: async (a) => {
+      const client = await findClient(a.cliente);
+      const { error } = await db.from("clients").update(clientFields(a)).eq("id", client.id);
+      if (error) throw error;
+      return { actualizado: a.nombre ?? client.name };
+    },
+  },
+
+  // ---------- Pedidos ----------
+  {
+    name: "editar_pedido",
+    description:
+      "Edita los datos generales de un pedido: título, descripción, fecha de entrega, link de entrega, adaptaciones, plataforma, nivel de detalle, objetivo, notas, aclaraciones y hooks en video.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pedido: str("ID del pedido o link del cliente"),
+        titulo: str("Título"), descripcion: str("Descripción de la portada"), fecha_entrega: str("YYYY-MM-DD"), entrega_drive: str("Link de Drive para entregar"),
+        adaptaciones: str("Adaptaciones"), plataforma: { type: "string", enum: ["Meta", "TikTok", "Google"] },
+        nivel_detalle: { type: "string", enum: ["guion", "grabacion", "completo"] }, objetivo: str("Objetivo"), notas: str("Notas"),
+        lo_que_no_cambia: str("Lo que no cambia en ninguna pieza (va en aclaraciones)"), aclaraciones: arr("Aclaraciones (reemplaza la lista)"),
+        hook_ids: arr("Hooks en video (reemplaza la lista)"), sumar_hook_ids: arr("Hooks a sumar"), quitar_hook_ids: arr("Hooks a sacar"),
+        evento: str("Evento"), fecha_evento: str("YYYY-MM-DD"), mes: str("Mes (Always On)"),
+      },
+      required: ["pedido"],
+    },
+    run: async (a) => {
+      const p = await findPedido(a.pedido);
+      let hooks: string[] | undefined = a.hook_ids;
+      if (a.sumar_hook_ids || a.quitar_hook_ids) {
+        const out = new Set<string>(a.quitar_hook_ids ?? []);
+        hooks = [...new Set([...(hooks ?? p.hook_ad_ids ?? []), ...(a.sumar_hook_ids ?? [])])].filter((x) => !out.has(x));
+      }
+      const { error } = await db
+        .from("pedidos")
+        .update(
+          clean({
+            title: a.titulo, intro: a.descripcion, deadline: a.fecha_entrega, delivery_url: a.entrega_drive, formats: a.adaptaciones, platform: a.plataforma,
+            detail_level: a.nivel_detalle, objective: a.objetivo, notes: a.notas, refs_note: a.lo_que_no_cambia, before_notes: a.aclaraciones, hook_ad_ids: hooks,
+            event_name: a.evento, event_date: a.fecha_evento, period: a.mes,
+          }),
+        )
+        .eq("id", p.id);
+      if (error) throw error;
+      return { ok: true, link_cliente: `${APP_URL}/p/${p.slug}` };
+    },
+  },
+  {
+    name: "editar_pieza",
+    description:
+      "Edita una pieza (creativo) de un pedido por su número: título, formato, guion (hook, desarrollo, cierre), imagen (escena, titular, bajada), cómo grabarlo, duración, qué replicar de la referencia o la referencia misma.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pedido: str("ID del pedido o link del cliente"), numero: num("Número de creativo (1, 2, 3…)"),
+        titulo: str("Título"), formato: str("Formato, ej. Reel 9:16"), hook: str("Hook"), desarrollo: str("Desarrollo"), cierre: str("Cierre"),
+        escena: str("Imagen / escena"), titular: str("Titular"), bajada: str("Bajada"), como_grabar: str("Cómo grabarlo"), duracion: str("Duración"),
+        que_replicar: str("Qué replicar de la referencia"), anuncio_id: str("Cambiar la referencia por este anuncio"),
+      },
+      required: ["pedido", "numero"],
+    },
+    run: async (a) => {
+      const p = await findPedido(a.pedido);
+      const { data: it } = await db.from("pedido_items").select("id").eq("pedido_id", p.id).eq("position", Number(a.numero)).maybeSingle();
+      if (!it) throw new Error(`El pedido no tiene creativo ${a.numero}`);
+      const { error } = await db
+        .from("pedido_items")
+        .update(
+          clean({
+            title: a.titulo, piece_name: a.titulo, format: a.formato, hook: a.hook, development: a.desarrollo, closing: a.cierre, scene: a.escena,
+            headline: a.titular, subhead: a.bajada, recording_tips: a.como_grabar, duration: a.duracion, ref_beats: a.que_replicar, ad_id: a.anuncio_id,
+          }),
+        )
+        .eq("id", it.id);
+      if (error) throw error;
+      return { ok: true, link_cliente: `${APP_URL}/p/${p.slug}` };
+    },
+  },
+  {
+    name: "agregar_pieza",
+    description: "Agrega un creativo al final de un pedido, con o sin referencia. Para que la IA lo escriba, después usá regenerar_pedido o completalo con editar_pieza.",
+    inputSchema: { type: "object", properties: { pedido: str("ID del pedido o link"), anuncio_id: str("Referencia (opcional)"), formato: str("Formato") }, required: ["pedido"] },
+    run: async (a) => {
+      const p = await findPedido(a.pedido);
+      const { count } = await db.from("pedido_items").select("id", { count: "exact", head: true }).eq("pedido_id", p.id);
+      const n = (count ?? 0) + 1;
+      await db.from("pedido_items").insert({ pedido_id: p.id, position: n, ad_id: a.anuncio_id ?? null, piece_name: `Pieza ${n}`, code: `V${n}`, format: a.formato ?? null });
+      return { numero: n };
+    },
+  },
+  {
+    name: "borrar_pieza",
+    description: "Saca un creativo de un pedido por su número y renumera los demás.",
+    inputSchema: { type: "object", properties: { pedido: str("ID del pedido o link"), numero: num("Número de creativo") }, required: ["pedido", "numero"] },
+    run: async (a) => {
+      const p = await findPedido(a.pedido);
+      await db.from("pedido_items").delete().eq("pedido_id", p.id).eq("position", Number(a.numero));
+      const { data: rest } = await db.from("pedido_items").select("id").eq("pedido_id", p.id).order("position");
+      for (const [i, r] of (rest ?? []).entries()) await db.from("pedido_items").update({ position: i + 1 }).eq("id", r.id);
+      return { quedan: rest?.length ?? 0 };
+    },
+  },
+  {
+    name: "regenerar_pedido",
+    description: "Vuelve a escribir con IA todo el pedido (guiones, cómo grabar, aclaraciones) con sus referencias actuales. Tarda 1 o 2 minutos.",
+    inputSchema: { type: "object", properties: { pedido: str("ID del pedido o link") }, required: ["pedido"] },
+    run: async (a) => {
+      const p = await findPedido(a.pedido);
+      await db.from("pedidos").update({ ai_status: "generating", ai_error: null }).eq("id", p.id);
+      const rt = (globalThis as any).EdgeRuntime;
+      if (rt?.waitUntil) rt.waitUntil(generatePedido(p.id));
+      else await generatePedido(p.id);
+      return { estado: "La IA lo está escribiendo. Consultá ver_pedido en 1 o 2 minutos.", link_cliente: `${APP_URL}/p/${p.slug}` };
+    },
+  },
+  {
+    name: "borrar_pedido",
+    description: "Borra un pedido de creativos (el link del cliente deja de funcionar). Confirmá con el usuario antes.",
+    inputSchema: { type: "object", properties: { pedido: str("ID del pedido o link"), confirmado: bool("true si el usuario confirmó") }, required: ["pedido", "confirmado"] },
+    run: async (a) => {
+      if (a.confirmado !== true) throw new Error("Preguntale al usuario si está seguro antes de borrar.");
+      const p = await findPedido(a.pedido);
+      await db.from("pedido_items").delete().eq("pedido_id", p.id);
+      await db.from("pedidos").delete().eq("id", p.id);
+      return { borrado: p.title };
+    },
+  },
 ];
 
-// ---------- Protocolo MCP (JSON-RPC) ----------
-const SERVER_INFO = { name: "pedido-de-creativos", title: "Pedido de Creativos (Grownax)", version: "1.0.0" };
+const SERVER_INFO = { name: "pedido-de-creativos", title: "Pedido de Creativos (Grownax)", version: "2.0.0" };
 const INSTRUCTIONS =
   "Herramienta de la agencia para encontrar referencias de anuncios de la competencia y armar pedidos de creativos. " +
+  "Podés hacer todo lo que hace la herramienta: buscar, ver y filtrar anuncios, favoritos, descartes, grupos, clientes y pedidos (crear, editar piezas, regenerar, borrar). " +
+  "Para lanzar una búsqueda: primero preparar_busqueda y preguntale al usuario TODO JUNTO en un solo mensaje; recién con sus respuestas, empezar_busqueda con confirmado=true. " +
   "Si el usuario nombra un grupo, usá listar_grupos / ver_grupo y crear_pedido con grupo: esas referencias las eligió una persona, no las cambies. " +
   "Flujo típico: listar_clientes → buscar_en_biblioteca (o empezar_busqueda si faltan referencias) → crear_pedido con los ids elegidos como referencia y los mejores hooks en hook_ids → ver_pedido. " +
   "Para eventos (Black Friday, Cyber, Hot Sale) usá solo_venta_directa y buscá con evento. Para no repetir referencias, usá ocultar_usados. " +

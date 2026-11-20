@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { NavLink, Route, Routes, useLocation } from "react-router-dom";
 import type { Session } from "@supabase/supabase-js";
-import { APP_NAME, supabase } from "./lib.ts";
+import { supabase } from "./lib.ts";
 import Home from "./pages/Home.tsx";
 import Library from "./pages/Library.tsx";
 import SearchPage from "./pages/Search.tsx";
@@ -84,16 +84,10 @@ export default function App() {
   return (
     <SelectionCtx.Provider value={sel}>
       <header className="topbar">
-        <NavLink to="/" className="brand">
+        <NavLink to="/" className="brand" title="Volver al inicio">
           <img src="/grownax-logo.png" alt="Grownax" />
-          <span className="app-name">{APP_NAME}</span>
         </NavLink>
-        <nav>
-          <NavLink to="/" end>Inicio</NavLink>
-          <NavLink to="/busquedas">Historial de búsquedas</NavLink>
-          <NavLink to="/biblioteca">Biblioteca</NavLink>
-          <NavLink to="/pedidos">Pedidos</NavLink>
-        </nav>
+        <span className="grow" />
         <button className="ghost small" onClick={() => supabase.auth.signOut()}>
           Salir
         </button>
