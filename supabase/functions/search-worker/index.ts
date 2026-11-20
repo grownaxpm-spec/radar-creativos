@@ -9,7 +9,7 @@
 // Secretos que usa (Supabase → Edge Functions → Secrets): APIFY_TOKEN, ANTHROPIC_API_KEY (opcional),
 // APIFY_ACTOR y CLAUDE_MODEL (opcionales). SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY los pone Supabase solo.
 import { createClient } from "@supabase/supabase-js";
-import { daysActive, libraryUrl, matchesRubro, normalizeAd, rubroRoots, winnerScore, type MediaItem, type NormalizedAd } from "./normalize.ts";
+import { daysActive, isBlockedAdvertiser, libraryUrl, matchesRubro, normalizeAd, rubroRoots, winnerScore, type MediaItem, type NormalizedAd } from "./normalize.ts";
 import { getItems, getRun, sourceUrlOf, startRun } from "./apify.ts";
 import { classifyAds, type ClientProfile } from "./classify.ts";
 import { draftPedido } from "./pedido.ts";
@@ -203,7 +203,9 @@ async function processChunk(
     if (s.media_type === "image" && ad.format === "video") continue;
     if (ads.some((x) => x.ad.ad_archive_id === ad.ad_archive_id)) continue;
     // Los anuncios del propio cliente no sirven como referencia de competencia
-    if (ctx.client && ad.page_name && ad.page_name.toLowerCase().includes(ctx.client.name.toLowerCase())) continue;
+    if (ctx.client && isBlockedAdvertiser(ad, [ctx.client.name])) continue;
+    // Marketplaces (Shein, Temu, Mercado Libre…) no son marcas del rubro
+    if (isBlockedAdvertiser(ad)) continue;
     ads.push({ ad, query: src ? `${src.q} (${src.country})` : "búsqueda" });
   }
 

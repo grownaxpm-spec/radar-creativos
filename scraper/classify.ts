@@ -118,7 +118,9 @@ function system(rubro: string, client: ClientProfile | null) {
     "para encontrar referencias que el cliente pueda replicar. Cada anuncio viene con su texto, la imagen o miniatura del video, los días que lleva activo " +
     "y cuántas variaciones tiene (más días y más variaciones = probablemente vende).\n\n" +
     `Para cada anuncio:\n` +
-    `- relevant: false si no es del rubro "${rubro}" (apps, series, otros productos, etc.).\n` +
+    `- relevant: false si no es del rubro "${rubro}" (apps, series, otros productos, etc.). ` +
+    "También false si el anunciante es un marketplace o tienda generalista (Shein, Temu, AliExpress, Amazon, Mercado Libre, Dafiti, Falabella, etc.) " +
+    "o una tienda multimarca o de dropshipping genérico (tiendas tipo shop sin marca propia, productos importados genéricos, venta por WhatsApp de otras marcas): solo sirven marcas reales del rubro con producto propio.\n" +
     "- hook: el gancho de los primeros segundos o la primera línea, escrito tal cual o descripto en pocas palabras (qué se ve/dice para frenar el scroll).\n" +
     "- hook_type y angle: elegí de las listas.\n" +
     "- why_it_works: 1-2 frases concretas (estructura, prueba, emoción, oferta). Nada genérico.\n" +

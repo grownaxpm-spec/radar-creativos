@@ -172,6 +172,25 @@ export function rubroRoots(terms: string[]): string[] {
       if (w.length >= 4 && !STOP.has(w)) roots.add(w.slice(0, Math.max(4, w.length - 2))); // "zapatos" → "zapat"
   return [...roots];
 }
+/**
+ * Marketplaces y tiendas generalistas (Shein, Temu, etc.): no son marcas del rubro, no sirven de referencia.
+ * Se compara contra el nombre de la página y el dominio del link.
+ */
+export const BLOCKED_ADVERTISERS = [
+  "shein", "temu", "aliexpress", "alibaba", "amazon", "mercadolibre", "mercadolivre", "mercadoshops", "shopee", "wish",
+  "walmart", "ebay", "dhgate", "joom", "banggood", "lightinthebox", "romwe", "zaful", "cider", "halara", "lazada",
+  "tiktokshop", "falabella", "dafiti", "netshoes", "zalando", "linio", "ripley", "coppel", "liverpool", "fravega",
+  "garbarino", "carrefour", "elcorteingles", "privalia", "aboutyou", "asos", "fashionnova", "patpat", "yesstyle",
+];
+const squash = (x: string) => x.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]/g, "");
+export function isBlockedAdvertiser(ad: Pick<NormalizedAd, "page_name" | "link_url">, extra: string[] = []): boolean {
+  const list = [...BLOCKED_ADVERTISERS, ...extra.map(squash)].filter(Boolean);
+  const page = squash(ad.page_name ?? "");
+  let host = "";
+  try { host = ad.link_url ? new URL(ad.link_url).hostname.replace(/^www\./, "") : ""; } catch { /* link raro */ }
+  const hostParts = host.split(".").map(squash);
+  return list.some((b) => page === b || page.startsWith(b) || (b.length >= 5 && page.includes(b)) || hostParts.includes(b) || squash(host).startsWith(b));
+}
 export function matchesRubro(ad: Pick<NormalizedAd, "body" | "title" | "page_name" | "link_url">, roots: string[], competitors: string[] = []): boolean {
   const hay = [ad.body, ad.title, ad.page_name, ad.link_url]
     .filter(Boolean)

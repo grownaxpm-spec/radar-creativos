@@ -3,7 +3,7 @@
 //       sin search_id: corre las pendientes y las recurrentes que tienen más de 7 días.
 import { createClient } from "@supabase/supabase-js";
 import { runActorBatch } from "./apify.ts";
-import { daysActive, libraryUrl, normalizeAd, winnerScore, type NormalizedAd } from "./normalize.ts";
+import { daysActive, isBlockedAdvertiser, libraryUrl, normalizeAd, winnerScore, type NormalizedAd } from "./normalize.ts";
 import { makeMediaStore } from "./storage.ts";
 import { classifyAds, type ClientProfile } from "./classify.ts";
 
@@ -115,7 +115,7 @@ async function processSearch(s: Search) {
 
   let saved = 0;
   let done = 0;
-  const keep = entries.filter(({ ad }) => tags.get(ad.ad_archive_id)?.relevant !== false); // la IA descarta lo que no es del rubro
+  const keep = entries.filter(({ ad }) => !isBlockedAdvertiser(ad) && tags.get(ad.ad_archive_id)?.relevant !== false); // la IA descarta lo que no es del rubro
   await progress(`Guardando ${keep.length} anuncios (videos e imágenes)…`, 75);
 
   // De a 6 en paralelo: descargar videos uno por uno es lo más lento

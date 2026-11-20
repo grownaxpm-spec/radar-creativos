@@ -84,3 +84,13 @@ test("detecta el tipo real de imagen por sus bytes", () => {
   assert.equal(sniffImage(new Uint8Array([0xff, 0xd8, 0xff, 0, 0, 0, 0, 0, 0, 0, 0, 0])), "image/jpeg");
   assert.equal(sniffImage(new Uint8Array([0x3c, 0x68, 0x74, 0x6d, 0, 0, 0, 0, 0, 0, 0, 0])), null);
 });
+
+import { isBlockedAdvertiser } from "./normalize.ts";
+test("descarta marketplaces", () => {
+  assert.ok(isBlockedAdvertiser({ page_name: "SHEIN", link_url: null }));
+  assert.ok(isBlockedAdvertiser({ page_name: "Temu", link_url: null }));
+  assert.ok(isBlockedAdvertiser({ page_name: "Ofertas", link_url: "https://articulo.mercadolibre.com.ar/MLA-1" }));
+  assert.ok(isBlockedAdvertiser({ page_name: "Mercado Libre Argentina", link_url: null }));
+  assert.ok(!isBlockedAdvertiser({ page_name: "Giorgio Beneti", link_url: "https://giorgiobeneti.com.ar" }));
+  assert.ok(!isBlockedAdvertiser({ page_name: "Sangagboots", link_url: "https://sangagboots.com" }));
+});
